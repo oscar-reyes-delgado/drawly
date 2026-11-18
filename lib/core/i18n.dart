@@ -774,6 +774,8 @@ const Map<String, Map<String, String>> _extra = {
     'Pose bones': 'Posar ossos',
     'Remove bone key': 'Remover chave do osso',
     'Remove bones': 'Remover ossos',
+    'Hide timeline': 'Ocultar linha do tempo',
+    'Show timeline': 'Mostrar linha do tempo',
   },
   'fr': {
     'File': 'Fichier',
@@ -1509,5 +1511,7 @@ const Map<String, Map<String, String>> _extra = {
     'Pose bones': 'Poser les os',
     'Remove bone key': 'Supprimer la clé de l’os',
     'Remove bones': 'Supprimer les os',
+    'Hide timeline': 'Masquer la timeline',
+    'Show timeline': 'Afficher la timeline',
   },
 };

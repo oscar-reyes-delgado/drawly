@@ -5,6 +5,7 @@ import '../../app/app_state.dart';
 import '../../app/commands.dart';
 import '../../core/i18n.dart';
 import '../theme.dart';
+import '../widgets.dart';
 
 /// Searchable list of every command (Ctrl+K).
 Future<void> showCommandPalette(BuildContext context) async {
@@ -82,7 +83,7 @@ class _PaletteState extends State<_Palette> {
             ),
           ),
           SizedBox(
-            height: 340,
+            height: fitDialogHeight(context, 340, margin: 120),
             child: _results.isEmpty
                 ? Center(child: Text(tr('Sin resultados', 'No results'), style: kSmall.copyWith(color: context.dim)))
                 : ListView.builder(

@@ -299,3 +299,18 @@ class CheckerPainter extends CustomPainter {
   @override
   bool shouldRepaint(CheckerPainter old) => old.cell != cell;
 }
+
+// ---- dialogs on small screens ----------------------------------------------
+
+/// True on phone-sized screens, where dialogs stack their controls.
+bool isNarrow(BuildContext context) => MediaQuery.sizeOf(context).width < 600;
+
+/// Content width for a dialog: [preferred] when it fits, otherwise the screen
+/// width minus the dialog margins.
+double fitDialogWidth(BuildContext context, double preferred, {double margin = 72}) =>
+    math.max(160, math.min(preferred, MediaQuery.sizeOf(context).width - margin));
+
+/// Content height for a dialog: [preferred] when it fits, otherwise what is
+/// left after the title, the buttons and the on-screen keyboard.
+double fitDialogHeight(BuildContext context, double preferred, {double margin = 190}) =>
+    math.max(120, math.min(preferred, MediaQuery.sizeOf(context).height - MediaQuery.viewInsetsOf(context).bottom - margin));

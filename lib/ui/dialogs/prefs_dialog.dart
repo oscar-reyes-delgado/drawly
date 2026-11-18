@@ -28,15 +28,25 @@ class _PrefsDialogState extends State<_PrefsDialog> {
 
   void _up(void Function(Settings s) f) => setState(() => s.update(f));
 
-  Widget _row(String label, Widget control, {String? help}) => Padding(
+  Widget _row(String label, Widget control, {String? help}) {
+    final text = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(label, style: kSmall),
+      if (help != null) Text(help, style: kTiny.copyWith(color: context.dim)),
+    ]);
+    // phones: the control goes under its label (switches stay on the right)
+    if (isNarrow(context) && control is! Switch) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 5),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [text, const SizedBox(height: 4), control]),
+      );
+    }
+    return _wideRow(text, control);
+  }
+
+  Widget _wideRow(Widget text, Widget control) => Padding(
         padding: const EdgeInsets.symmetric(vertical: 5),
         child: Row(children: [
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(label, style: kSmall),
-              if (help != null) Text(help, style: kTiny.copyWith(color: context.dim)),
-            ]),
-          ),
+          Expanded(child: text),
           const SizedBox(width: 12),
           control,
         ]),
@@ -165,8 +175,7 @@ class _PrefsDialogState extends State<_PrefsDialog> {
         ),
       ]),
       const SizedBox(height: 8),
-      SizedBox(
-        height: 360,
+      Expanded(
         child: ListView.builder(
           itemExtent: 32,
           itemCount: list.length,
@@ -176,7 +185,7 @@ class _PrefsDialogState extends State<_PrefsDialog> {
             final custom = s.shortcuts.containsKey(c.id);
             final capturing = _capturing == c.id;
             return Row(children: [
-              SizedBox(width: 90, child: Text(commandCategoryLabel(c.category), style: kTiny.copyWith(color: context.dim), overflow: TextOverflow.ellipsis)),
+              if (!isNarrow(context)) SizedBox(width: 90, child: Text(commandCategoryLabel(c.category), style: kTiny.copyWith(color: context.dim), overflow: TextOverflow.ellipsis)),
               Expanded(child: Text(c.label(), style: kSmall, overflow: TextOverflow.ellipsis)),
               if (custom)
                 PanelButton(
@@ -216,12 +225,11 @@ class _PrefsDialogState extends State<_PrefsDialog> {
       title: Text(tr('Preferencias', 'Preferences'), style: const TextStyle(fontSize: 18)),
       contentPadding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
       content: SizedBox(
-        width: 560,
-        height: 470,
+        width: fitDialogWidth(context, 560),
+        height: fitDialogHeight(context, 470),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            for (var i = 0; i < tabs.length; i++)
-              Padding(padding: const EdgeInsets.only(right: 6), child: MiniToggle(label: tabs[i], value: _tab == i, onChanged: (_) => setState(() => _tab = i))),
+          Wrap(spacing: 6, runSpacing: 6, children: [
+            for (var i = 0; i < tabs.length; i++) MiniToggle(label: tabs[i], value: _tab == i, onChanged: (_) => setState(() => _tab = i)),
           ]),
           const SizedBox(height: 12),
           Expanded(child: _tab == 2 ? _shortcuts() : SingleChildScrollView(child: _tab == 0 ? _general() : _input())),
@@ -278,7 +286,7 @@ class _KeyCaptureState extends State<_KeyCapture> {
           widget.onStart();
         },
         child: Container(
-          width: 150,
+          width: isNarrow(context) ? 104 : 150,
           height: 24,
           alignment: Alignment.center,
           margin: const EdgeInsets.only(left: 6),

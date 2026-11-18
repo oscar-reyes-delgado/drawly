@@ -167,7 +167,7 @@ class _ExportDialogState extends State<_ExportDialog> {
     return Dialog(
       child: SizedBox(
         width: 460,
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(16),
           child: Column(
             mainAxisSize: MainAxisSize.min,

@@ -107,16 +107,9 @@ class _NewDocumentDialogState extends State<_NewDocumentDialog> {
   Widget build(BuildContext context) {
     final cs = context.cs;
     final groups = I18n.instance.lang == 'es' ? _groupsEs : _groupsEn;
-    return AlertDialog(
-      title: Text(tr('Nuevo documento', 'New document'), style: const TextStyle(fontSize: 18)),
-      contentPadding: const EdgeInsets.fromLTRB(20, 14, 20, 4),
-      content: SizedBox(
-        width: 620,
-        child: SingleChildScrollView(
-          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            SizedBox(
-              width: 250,
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    // phones: one scrolling column with the fields first, then the presets
+    final narrow = MediaQuery.sizeOf(context).width < 700;
+    final presets = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Wrap(spacing: 4, runSpacing: 4, children: [
                   for (var i = 0; i < groups.length; i++) MiniToggle(label: groups[i], value: _group == i, onChanged: (_) => setState(() => _group = i)),
                 ]),
@@ -148,14 +141,11 @@ class _NewDocumentDialogState extends State<_NewDocumentDialog> {
                       ]),
                     ),
                   ),
-              ]),
-            ),
-            Container(width: 1, height: 330, margin: const EdgeInsets.symmetric(horizontal: 16), color: cs.outlineVariant),
-            Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              ]);
+    final fields = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 TextField(controller: _name, style: kSmall, decoration: InputDecoration(labelText: tr('Nombre', 'Name'))),
                 const SizedBox(height: 12),
-                Row(children: [
+                Wrap(crossAxisAlignment: WrapCrossAlignment.center, children: [
                   NumField(key: ValueKey('w$_rev'), value: _w, min: 1, max: 30000, width: 100, label: tr('Ancho', 'Width'), suffix: 'px', onSubmitted: (v) => setState(() => _w = v)),
                   PanelButton(
                     icon: Icons.swap_horiz,
@@ -195,16 +185,26 @@ class _NewDocumentDialogState extends State<_NewDocumentDialog> {
                 const SizedBox(height: 14),
                 Text(tr('Animación', 'Animation'), style: kTiny.copyWith(color: context.dim)),
                 const SizedBox(height: 6),
-                Row(children: [
+                Wrap(spacing: 28, runSpacing: 8, children: [
                   NumField(key: ValueKey('f$_rev'), value: _fps, min: 1, max: 240, width: 100, label: 'FPS', onSubmitted: (v) => setState(() => _fps = v)),
-                  const SizedBox(width: 28),
                   NumField(key: ValueKey('n$_rev'), value: _frames, min: 1, max: 100000, width: 100, label: tr('Fotogramas', 'Frames'), onSubmitted: (v) => setState(() => _frames = v)),
                 ]),
                 const SizedBox(height: 12),
                 MiniToggle(label: tr('Lienzo infinito', 'Infinite canvas'), icon: Icons.all_inclusive, value: _infinite, onChanged: (v) => setState(() => _infinite = v)),
-              ]),
-            ),
-          ]),
+              ]);
+    return AlertDialog(
+      title: Text(tr('Nuevo documento', 'New document'), style: const TextStyle(fontSize: 18)),
+      contentPadding: const EdgeInsets.fromLTRB(20, 14, 20, 4),
+      content: SizedBox(
+        width: narrow ? double.maxFinite : 620,
+        child: SingleChildScrollView(
+          child: narrow
+              ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: [fields, const Divider(height: 28), presets])
+              : Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  SizedBox(width: 250, child: presets),
+                  Container(width: 1, height: 330, margin: const EdgeInsets.symmetric(horizontal: 16), color: cs.outlineVariant),
+                  Expanded(child: fields),
+                ]),
         ),
       ),
       actions: [

@@ -150,7 +150,7 @@ class _FilterDialogState extends State<_FilterDialog> {
                   child: Row(children: [
                     Swatch(color: _spec.color ?? const Color(0xFF00FF00), size: 26),
                     const SizedBox(width: 10),
-                    TextButton(onPressed: () => _set(_spec.copyWith(color: ts.fg)), child: Text(tr('Usar color frontal', 'Use foreground colour'), style: kSmall)),
+                    Flexible(child: TextButton(onPressed: () => _set(_spec.copyWith(color: ts.fg)), child: Text(tr('Usar color frontal', 'Use foreground colour'), style: kSmall))),
                   ]),
                 ),
               if (def.hasGradient) ...[
@@ -192,7 +192,8 @@ class _FilterDialogState extends State<_FilterDialog> {
                 Text(tr('Clic: añadir punto · Doble clic: quitarlo', 'Click: add a point · Double click: remove it'), style: kTiny.copyWith(color: context.dim)),
               ],
               const SizedBox(height: 10),
-              Row(children: [
+              // wraps to two lines when the text is large (phones)
+              Wrap(alignment: WrapAlignment.spaceBetween, crossAxisAlignment: WrapCrossAlignment.center, runSpacing: 6, children: [
                 if (widget.adjustLayerId == null)
                   MiniToggle(
                     label: tr('Vista previa', 'Preview'),
@@ -202,10 +203,11 @@ class _FilterDialogState extends State<_FilterDialog> {
                       _render();
                     },
                   ),
-                const Spacer(),
-                TextButton(onPressed: _cancel, child: Text(tr('Cancelar', 'Cancel'))),
-                const SizedBox(width: 6),
-                FilledButton(onPressed: _accept, child: Text(tr('Aplicar', 'Apply'))),
+                Row(mainAxisSize: MainAxisSize.min, children: [
+                  TextButton(onPressed: _cancel, child: Text(tr('Cancelar', 'Cancel'))),
+                  const SizedBox(width: 6),
+                  FilledButton(onPressed: _accept, child: Text(tr('Aplicar', 'Apply'))),
+                ]),
               ]),
             ]),
           ),

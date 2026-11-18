@@ -51,6 +51,8 @@ ThemeData buildTheme(Settings s, Brightness brightness) {
       backgroundColor: scheme.surfaceContainer,
       surfaceTintColor: Colors.transparent,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      // small margins so dialogs get the width of a phone screen
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
     ),
     popupMenuTheme: PopupMenuThemeData(
       color: scheme.surfaceContainerHigh,

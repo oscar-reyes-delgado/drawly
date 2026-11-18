@@ -226,6 +226,10 @@ class _BrushPanelBodyState extends State<_BrushPanelBody> {
 
         return LayoutBuilder(
           builder: (context, constraints) {
+            // short panels (phone in landscape): everything scrolls together
+            if (constraints.hasBoundedHeight && constraints.maxHeight < 360) {
+              return ListView(children: [_buildHeader(context, active), const Divider(height: 1), const SizedBox(height: 4), ...listItems]);
+            }
             if (constraints.hasBoundedHeight) {
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,

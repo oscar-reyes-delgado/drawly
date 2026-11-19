@@ -302,6 +302,7 @@ void registerCommands(AppState app) {
   add('view.snapGrid', view, () => tr('Ajustar a la cuadrícula', 'Snap to grid'), () => toggle((x) => x.snapToGrid = !x.snapToGrid));
   add('view.snapGuides', view, () => tr('Ajustar a las guías', 'Snap to guides'), () => toggle((x) => x.snapToGuides = !x.snapToGuides));
   add('view.pixelGrid', view, () => tr('Cuadrícula de píxeles', 'Pixel grid'), () => toggle((x) => x.showPixelGrid = !x.showPixelGrid));
+  add('view.onion', view, () => tr('Papel cebolla', 'Onion skin'), () => toggle((x) => x.onion = x.onion.copyWith(enabled: !x.onion.enabled)), shortcut: 'Alt+O');
   add('view.camera', view, () => tr('Ver a través de la cámara', 'View through camera'), () => toggle((x) => x.viewCamera = !x.viewCamera));
 
   // ---- tools --------------------------------------------------------------
@@ -326,6 +327,7 @@ void registerCommands(AppState app) {
     'ik': ('Shift+K', 'Cinemática inversa', 'Inverse kinematics'),
     'bones': ('Shift+B', 'Huesos', 'Bones'),
     'track': ('', 'Seguimiento', 'Track motion'),
+    'transform': ('Ctrl+T', 'Transformar', 'Transform'),
   };
   for (final e in toolKeys.entries) {
     final (key, es, en) = e.value;

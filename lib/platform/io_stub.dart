@@ -21,3 +21,6 @@ Future<({int exitCode, String stdout, String stderr})?> runProcess(String exe, L
 
 /// Locates an executable on PATH.
 Future<String?> findExecutable(String name) async => null;
+
+/// Shows [path] selected in the system file manager; false when unsupported.
+Future<bool> revealInFileManager(String path) async => false;

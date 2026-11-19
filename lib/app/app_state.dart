@@ -9,6 +9,13 @@ import '../engine/filters.dart';
 import '../model/document.dart';
 import '../tools/registry.dart';
 import '../tools/tool.dart';
+import 'audio_backend.dart';
+import 'audio_sync.dart';
+import 'autosave.dart';
+import 'easy_autosave.dart';
+import 'voice_recorder.dart';
+import '../platform/io.dart' as io;
+import 'package:path/path.dart' as p;
 import 'commands.dart';
 import 'document_controller.dart';
 import 'key_combo.dart';
@@ -29,6 +36,18 @@ class AppState extends ChangeNotifier {
   final Map<String, Tool> toolMap = {};
   final CommandRegistry commands = CommandRegistry();
   late final Playback playback = Playback(this);
+
+  /// Plays the timeline audio during playback (created by [init]; null in tests).
+  AudioSync? audio;
+
+  /// Voice recording over the animation.
+  final VoiceRecorder voice = VoiceRecorder();
+
+  /// Crash-recovery copies (native platforms; created by [init]).
+  AutosaveService? autosave;
+
+  /// Easy mode: saves documents with a file shortly after each edit.
+  EasyFileSaver? easySaver;
 
   /// Repaints tool / selection overlays.
   final Signal overlaySignal = Signal();
@@ -51,6 +70,21 @@ class AppState extends ChangeNotifier {
     await Future.wait([BrushTips.instance.ensureLoaded(), Shaders.instance.ensureLoaded()]);
     registerTools(this);
     registerCommands(this);
+    final sync = audio = AudioSync(PluginAudioBackend());
+    playback.onStart = (frame) {
+      final d = doc;
+      if (d != null) sync.start(d.project, d.timeline, frame.toDouble(), speed: playback.speed);
+    };
+    playback.onStop = sync.stop;
+    if (io.hasFileSystem) {
+      autosave = AutosaveService(
+        directory: () async => p.join((await io.appDataDir()) ?? (await io.tempDir()) ?? '.', 'recovery'),
+        interval: Duration(minutes: settings.autosaveMinutes),
+        busy: () => tool.active,
+      );
+      easySaver = EasyFileSaver(enabled: () => settings.isEasy && settings.autosaveMinutes > 0, busy: () => tool.active);
+      settings.addListener(() => autosave?.interval = Duration(minutes: settings.autosaveMinutes));
+    }
     ts.addListener(_onToolState);
     settings.addListener(notifyListeners);
     _ready = true;
@@ -69,6 +103,8 @@ class AppState extends ChangeNotifier {
     docs.add(d);
     _active = docs.length - 1;
     d.addListener(_onDocChanged);
+    if (settings.autosaveMinutes > 0) autosave?.attach(d);
+    easySaver?.attach(d);
     notifyListeners();
     return d;
   }
@@ -78,6 +114,9 @@ class AppState extends ChangeNotifier {
     if (i < 0) return;
     playback.stop();
     d.removeListener(_onDocChanged);
+    // closing on purpose (saved, or the user chose to discard): drop its recovery copy
+    autosave?.detach(d);
+    easySaver?.detach(d);
     docs.removeAt(i);
     d.dispose();
     if (_active >= docs.length) _active = docs.length - 1;
@@ -158,13 +197,27 @@ class AppState extends ChangeNotifier {
     'anim.nextFrame', 'anim.prevFrame', 'layer.selectAbove', 'layer.selectBelow',
   };
 
+  DateTime? _spaceDown;
+
+  /// In easy mode, Space released before this plays / pauses instead of panning.
+  static const Duration spaceTapTime = Duration(milliseconds: 220);
+
   KeyEventResult handleKey(FocusNode node, KeyEvent e) {
     if (_typing) return KeyEventResult.ignored;
     final k = e.logicalKey;
     final hw = HardwareKeyboard.instance;
     if (k == LogicalKeyboardKey.space && !hw.isControlPressed) {
-      if (e is KeyDownEvent) setTempTool('hand');
-      if (e is KeyUpEvent) setTempTool(null);
+      if (e is KeyDownEvent) {
+        _spaceDown = DateTime.now();
+        setTempTool('hand');
+      }
+      if (e is KeyUpEvent) {
+        setTempTool(null);
+        // Easy mode: a quick tap plays / pauses; holding still pans.
+        final down = _spaceDown;
+        _spaceDown = null;
+        if (settings.isEasy && down != null && DateTime.now().difference(down) < spaceTapTime && doc != null) playback.toggle();
+      }
       return KeyEventResult.handled;
     }
     if (k == LogicalKeyboardKey.altLeft || k == LogicalKeyboardKey.altRight) {

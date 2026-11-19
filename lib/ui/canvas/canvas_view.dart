@@ -306,6 +306,10 @@ class _ArtPainter extends CustomPainter {
         useCamera: doc.viewCamera,
         live: doc.live,
         quality: scale >= 2 ? FilterQuality.none : FilterQuality.medium,
+        onion: AppState.I.playback.playing ? null : doc.onion,
+        onionLayerId: doc.activeLayerId,
+        lightTable: doc.lightTable,
+        activeLayerId: doc.activeLayerId,
       );
       if (comp.background == null && !comp.infinite) {
         canvas.save();

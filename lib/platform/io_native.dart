@@ -140,3 +140,18 @@ Future<String?> findExecutable(String name) async {
     return null;
   }
 }
+
+/// Shows [path] selected in the system file manager (Windows, macOS, Linux);
+/// false when unsupported (mobile) or when the command fails.
+Future<bool> revealInFileManager(String path) async {
+  try {
+    if (Platform.isWindows) {
+      // explorer returns 1 even on success: only a launch failure counts.
+      await Process.run('explorer', ['/select,', path]);
+      return true;
+    }
+    if (Platform.isMacOS) return (await Process.run('open', ['-R', path])).exitCode == 0;
+    if (Platform.isLinux) return (await Process.run('xdg-open', [File(path).parent.path])).exitCode == 0;
+  } catch (_) {}
+  return false;
+}

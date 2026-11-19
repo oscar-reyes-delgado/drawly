@@ -54,6 +54,23 @@ class Settings extends ChangeNotifier {
   String watermark = '';
   bool watermarkEnabled = false;
 
+  /// Interface mode: 'easy', 'advanced', or '' (not chosen yet: ask on first start).
+  String uiMode = '';
+
+  /// Defaults of the quick «new project» of the easy mode.
+  int easyWidth = 1920;
+  int easyHeight = 1080;
+  int easyFps = 12;
+
+  /// Easy-mode helpers: tooltips with explanations and the first-run tutorial.
+  bool easyHints = true;
+  bool tutorialDone = false;
+
+  /// Favourite colours (ARGB) shown in the easy colour bar.
+  List<int> favoriteColors = [];
+
+  bool get isEasy => uiMode == 'easy';
+
   /// Optional AI service endpoint (OpenAI-compatible images API) and key.
   String aiEndpoint = '';
   String aiKey = '';
@@ -83,6 +100,13 @@ class Settings extends ChangeNotifier {
   void update(void Function(Settings s) f) {
     f(this);
     I18n.instance.lang = lang;
+    notifyListeners();
+    save();
+  }
+
+  /// Forgets [path] (e.g. the file was deleted or moved).
+  void removeRecent(String path) {
+    recentFiles = recentFiles.where((p) => p != path).toList();
     notifyListeners();
     save();
   }
@@ -123,6 +147,13 @@ class Settings extends ChangeNotifier {
         'timelineVisible': timelineVisible,
         'watermark': watermark,
         'watermarkEnabled': watermarkEnabled,
+        'uiMode': uiMode,
+        'easyWidth': easyWidth,
+        'easyHeight': easyHeight,
+        'easyFps': easyFps,
+        'easyHints': easyHints,
+        'tutorialDone': tutorialDone,
+        'favoriteColors': favoriteColors,
         'aiEndpoint': aiEndpoint,
         'aiKey': aiKey,
       };
@@ -159,6 +190,13 @@ class Settings extends ChangeNotifier {
     timelineVisible = pick('timelineVisible', true);
     watermark = pick('watermark', '');
     watermarkEnabled = pick('watermarkEnabled', false);
+    uiMode = const {'easy', 'advanced'}.contains(m['uiMode']) ? m['uiMode'] as String : '';
+    easyWidth = pick('easyWidth', 1920).clamp(16, 16384);
+    easyHeight = pick('easyHeight', 1080).clamp(16, 16384);
+    easyFps = pick('easyFps', 12).clamp(1, 60);
+    easyHints = pick('easyHints', true);
+    tutorialDone = pick('tutorialDone', false);
+    favoriteColors = ((m['favoriteColors'] as List?) ?? const []).whereType<int>().take(64).toList();
     aiEndpoint = pick('aiEndpoint', '');
     aiKey = pick('aiKey', '');
   }

@@ -6,6 +6,8 @@ import 'app/app_state.dart';
 import 'app/commands.dart';
 import 'core/i18n.dart';
 import 'ui/dialogs/prompts.dart';
+import 'ui/easy/easy_shell.dart';
+import 'ui/easy/mode_chooser.dart';
 import 'ui/edit_commands.dart';
 import 'ui/file_commands.dart';
 import 'ui/interchange_commands.dart';
@@ -53,7 +55,11 @@ class _DrawlyAppState extends State<DrawlyApp> {
         themeMode: app.settings.themeMode,
         theme: buildTheme(app.settings, Brightness.light),
         darkTheme: buildTheme(app.settings, Brightness.dark),
-        home: const Shell(),
+        home: switch (app.settings.uiMode) {
+          'easy' => const EasyShell(),
+          'advanced' => const Shell(),
+          _ => const ModeChooser(),
+        },
       ),
     );
   }

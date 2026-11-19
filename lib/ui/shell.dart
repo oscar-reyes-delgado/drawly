@@ -12,6 +12,7 @@ import 'dialogs/command_palette.dart';
 import 'dialogs/new_document.dart';
 import 'dialogs/prefs_dialog.dart';
 import 'dialogs/prompts.dart';
+import 'easy/easy_shell.dart';
 import 'menu_bar.dart';
 import 'panels/brush_panel.dart';
 import 'panels/color_panel.dart';
@@ -53,6 +54,20 @@ void registerShellCommands(CommandRegistry r, AppState app) {
       if (c != null) showCommandPalette(c);
     },
     shortcut: 'Ctrl+K',
+    needsDocument: false,
+  ));
+  r.add(Command(
+    id: 'app.easyMode',
+    category: CommandCategory.help,
+    label: () => tr('Cambiar a Modo Fácil', 'Switch to Easy mode'),
+    run: () => setUiMode(app, 'easy'),
+    needsDocument: false,
+  ));
+  r.add(Command(
+    id: 'app.advancedMode',
+    category: CommandCategory.help,
+    label: () => tr('Cambiar a Modo Avanzado', 'Switch to Advanced mode'),
+    run: () => setUiMode(app, 'advanced'),
     needsDocument: false,
   ));
   r.add(Command(
@@ -232,6 +247,12 @@ class _TopBar extends StatelessWidget {
             child: ListView.builder(scrollDirection: Axis.horizontal, itemCount: app.docs.length, itemBuilder: (context, i) => _tab(context, i)),
           ),
         ],
+        PanelButton(
+          key: const ValueKey('to-easy'),
+          icon: Icons.draw_outlined,
+          tooltip: tr('Cambiar a Modo Fácil', 'Switch to Easy mode'),
+          onTap: () => setUiMode(app, 'easy'),
+        ),
         PanelButton(icon: Icons.search, tooltip: tr('Comandos (Ctrl+K)', 'Commands (Ctrl+K)'), onTap: () => app.commands.run('app.palette')),
         if (!panelsButton) PanelButton(icon: Icons.settings_outlined, tooltip: tr('Preferencias', 'Preferences'), onTap: () => app.commands.run('app.prefs')),
         if (panelsButton)

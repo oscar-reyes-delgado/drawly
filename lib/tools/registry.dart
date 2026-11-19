@@ -9,12 +9,14 @@ import 'select_tools.dart';
 import 'shape_tool.dart';
 import 'text_tool.dart';
 import 'track_tool.dart';
+import 'transform_tool.dart';
 import 'tool.dart';
 import 'view_tools.dart';
 
 /// Order of the tools in the toolbar.
 const List<String> kToolbarOrder = [
-  'move', 'marquee',
+  'move', 'transform',
+  'marquee',
   'lasso', 'polylasso',
   'wand', 'eyedropper',
   'brush', 'eraser',
@@ -31,6 +33,7 @@ const Set<String> kAltPicksColor = {'brush', 'bucket', 'gradient', 'shape', 'tex
 void registerTools(AppState app) {
   final tools = <Tool>[
     MoveTool(),
+    TransformTool(),
     MarqueeTool(),
     LassoTool(),
     PolyLassoTool(),

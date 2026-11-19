@@ -11,6 +11,7 @@ import '../app/doc_timeline.dart';
 import '../app/document_controller.dart';
 import '../app/interchange.dart';
 import '../core/i18n.dart';
+import '../app/audio_sync.dart';
 import '../engine/audio/wav.dart';
 import '../engine/tiles.dart';
 import '../io/edit_lists.dart';
@@ -76,11 +77,22 @@ void registerInterchangeCommands(CommandRegistry r, AppState app) {
     app.addDocument(await projectFromOra(f.$2, name: name), title: name);
   }, needsDocument: false);
 
-  add('file.importAudio', CommandCategory.animation, () => tr('Importar audio WAV…', 'Import WAV audio…'), () async {
-    final f = await pick(tr('Importar audio', 'Import audio'), const ['wav']);
+  add('file.importAudio', CommandCategory.animation, () => tr('Importar audio (WAV, MP3, OGG)…', 'Import audio (WAV, MP3, OGG)…'), () async {
+    final f = await pick(tr('Importar audio', 'Import audio'), const ['wav', 'mp3', 'ogg']);
     if (f == null) return;
-    final clip = importWavClip(app.doc!, f.$1, f.$2);
-    app.toast('${tr('Audio añadido', 'Audio added')}: ${clip.toStringAsFixed(1)} s');
+    final seconds = await importAudioClip(app.doc!, f.$1, f.$2, app.audio?.backend);
+    app.toast('${tr('Audio añadido', 'Audio added')}: ${seconds.toStringAsFixed(1)} s');
+  });
+
+  add('anim.recordVoice', CommandCategory.animation, () => tr('Grabar voz / detener', 'Record voice / stop'), () async {
+    final v = app.voice;
+    if (v.recording) {
+      final secs = await v.stop();
+      app.toast(secs == null ? tr('No se grabó nada', 'Nothing was recorded') : '${tr('Voz añadida', 'Voice added')}: ${secs.toStringAsFixed(1)} s');
+    } else {
+      final error = await v.start(app.doc!, app.playback);
+      app.toast(error ?? tr('Grabando… vuelve a pulsar para detener', 'Recording… press again to stop'));
+    }
   });
 
   // ---- export ---------------------------------------------------------------
@@ -132,6 +144,21 @@ void registerInterchangeCommands(CommandRegistry r, AppState app) {
 
 /// Decodes [bytes] as WAV and adds it as an audio clip at the current frame.
 /// Returns its duration in seconds. Throws [FormatException] when it is not a WAV file.
+/// Adds a WAV, MP3 or OGG file as an audio clip at the current frame and returns
+/// its length in seconds. WAV is measured here; other formats ask [backend]
+/// (the platform player). Throws FormatException when the length is unknown.
+Future<double> importAudioClip(DocumentController doc, String fileName, Uint8List bytes, AudioBackend? backend) async {
+  final format = sniffAudio(bytes);
+  if (format == AudioFormat.wav) return importWavClip(doc, fileName, bytes);
+  if (format == AudioFormat.unknown) throw FormatException(tr('Formato de audio no reconocido', 'Unrecognised audio format'));
+  final seconds = await backend?.durationOf(bytes, format);
+  if (seconds == null || seconds <= 0) {
+    throw FormatException(tr('No se pudo leer la duración del audio en este dispositivo', 'Could not read the audio length on this device'));
+  }
+  doc.addAudioClip(p.basenameWithoutExtension(fileName), bytes, seconds);
+  return seconds;
+}
+
 double importWavClip(DocumentController doc, String fileName, Uint8List bytes) {
   if (!isWav(bytes)) throw FormatException(tr('No es un archivo WAV', 'Not a WAV file'));
   final buffer = decodeWav(bytes);

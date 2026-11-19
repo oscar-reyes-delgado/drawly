@@ -309,6 +309,18 @@ class _TimelineBodyState extends State<_TimelineBody> {
               value: playback.loop,
               onChanged: playback.setLoop,
             ),
+            const SizedBox(width: 4),
+            MiniToggle(
+              key: const ValueKey('timeline.onion'),
+              label: tr('Cebolla', 'Onion'),
+              icon: Icons.layers_outlined,
+              value: doc.onion.enabled,
+              onChanged: (v) {
+                doc.onion = doc.onion.copyWith(enabled: v);
+                doc.touch();
+                doc.repaint();
+              },
+            ),
             const VSep(),
             Text('FPS', style: kTiny.copyWith(color: context.dim)),
             const SizedBox(width: 4),

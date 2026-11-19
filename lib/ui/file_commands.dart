@@ -10,10 +10,12 @@ import '../app/commands.dart';
 import '../app/document_controller.dart';
 import '../app/file_ops.dart';
 import '../engine/compositor.dart';
+import '../engine/tiles.dart';
 import '../core/i18n.dart';
 import '../io/image_export.dart';
 import '../io/project_codec.dart';
 import '../platform/io.dart';
+import '../platform/video_encoder.dart';
 import 'dialogs/export_dialog.dart';
 
 /// File menu commands: open, save, save as and exports, wired to [file_ops].
@@ -35,6 +37,7 @@ void registerFileCommands(CommandRegistry r, AppState app) {
     d.title = p.basenameWithoutExtension(path);
     d.dirty = false;
     d.touch();
+    if (!path.startsWith('content://')) app.settings.addRecent(path);
   }
 
   Future<void> saveAs() => guarded(tr('Error al guardar', 'Save failed'), () async {
@@ -71,6 +74,7 @@ void registerFileCommands(CommandRegistry r, AppState app) {
         final c = await openProjectFrom(path);
         app.addDocument(c.project, title: c.title, path: c.filePath);
         c.dispose();
+        app.settings.addRecent(path);
       });
 
   /// Asks for a folder and returns `<folder>/<title>.<ext>`, or null.
@@ -108,6 +112,17 @@ void registerFileCommands(CommandRegistry r, AppState app) {
   add('file.exportWebp', () => tr('Exportar WebP…', 'Export WebP…'), () => still(StillFormat.webp));
   add('file.exportGif', () => tr('Exportar GIF animado…', 'Export animated GIF…'), () => anim(AnimFormat.gif));
   add('file.exportApng', () => tr('Exportar APNG…', 'Export APNG…'), () => anim(AnimFormat.apng));
+  add('file.exportMp4', () => tr('Exportar vídeo MP4…', 'Export MP4 video…'), () => guarded(tr('Error al exportar', 'Export failed'), () async {
+        if (!await VideoEncoder.isAvailable()) {
+          app.toast(tr('Este dispositivo no puede crear vídeo MP4; exporta GIF o WebP', 'This device cannot create MP4 video; export GIF or WebP'));
+          return;
+        }
+        final dir = await _pickDir();
+        if (dir == null) return;
+        app.toast(tr('Exportando vídeo…', 'Exporting video…'), duration: const Duration(minutes: 5));
+        final out = await writeMp4(app.doc!, dir, watermark: watermark());
+        done(out.isNotEmpty, out.isEmpty ? dir : out.first);
+      }));
   add('file.exportSequence', () => tr('Exportar secuencia PNG…', 'Export PNG sequence…'), () {
     guarded(tr('Error al exportar', 'Export failed'), () async {
       final d = app.doc!;
@@ -156,7 +171,31 @@ Future<void> _exportWithDialog(AppState app) async {
 
 /// Renders and writes [o] into [dir]; returns the paths written (empty on failure).
 /// Raster kinds only ([ExportKind.svg] is handled by `exportSvgTo`).
-Future<List<String>> writeExport(DocumentController d, ExportOptions o, String dir, {String? watermark}) async {
+/// [onProgress] goes from 0 to 1; when [cancel] is cancelled the files written
+/// so far are deleted and an empty list is returned.
+Future<List<String>> writeExport(DocumentController d, ExportOptions o, String dir, {String? watermark, void Function(double)? onProgress, CancelToken? cancel}) async {
+  final out = <String>[];
+  try {
+    return await _writeExport(d, o, dir, out, watermark: watermark, onProgress: onProgress, cancel: cancel);
+  } on ExportCancelled {
+    for (final f in out) {
+      await deleteFile(f);
+    }
+    return const [];
+  }
+}
+
+Future<List<String>> _writeExport(DocumentController d, ExportOptions o, String dir, List<String> out, {String? watermark, void Function(double)? onProgress, CancelToken? cancel}) async {
+  final frameTotal = o.kind == ExportKind.still ? 1 : (o.rangeEnd - o.rangeStart).clamp(1, 1 << 30);
+  var done = 0;
+  // Yields to the UI between frames so progress shows and Cancel can be pressed.
+  Future<void> step([double share = 1]) async {
+    done++;
+    onProgress?.call((share * done / frameTotal).clamp(0.0, 1.0));
+    await Future<void>.delayed(Duration.zero);
+    cancel?.check();
+  }
+
   final project = d.project, comp = d.comp;
   final alpha = switch (o.kind) {
     ExportKind.animation => o.anim != AnimFormat.gif || o.transparent,
@@ -175,8 +214,9 @@ Future<List<String>> writeExport(DocumentController d, ExportOptions o, String d
   Future<bool> write(String name, List<int> bytes) async => writeFileBytes(p.join(dir, name), Uint8List.fromList(bytes));
 
   await ensureDir(dir);
+  cancel?.check();
+  onProgress?.call(0);
   final base = d.title;
-  final out = <String>[];
   switch (o.kind) {
     case ExportKind.still:
       final img = render(o.frame);
@@ -196,11 +236,16 @@ Future<List<String>> writeExport(DocumentController d, ExportOptions o, String d
         } finally {
           img.dispose();
         }
+        await step();
       }
     case ExportKind.animation:
     case ExportKind.spriteSheet:
-      final frames = [for (var f = o.rangeStart; f < o.rangeEnd; f++) render(f)];
+      final frames = <ui.Image>[];
       try {
+        for (var f = o.rangeStart; f < o.rangeEnd; f++) {
+          frames.add(render(f));
+          await step(0.85);
+        }
         if (o.kind == ExportKind.animation) {
           final name = '$base.${o.anim == AnimFormat.apng ? 'apng.png' : o.anim.ext}';
           if (await write(name, await encodeAnimation(frames, o.anim, fps: comp.timeline.fps))) out.add(p.join(dir, name));
@@ -222,6 +267,60 @@ Future<List<String>> writeExport(DocumentController d, ExportOptions o, String d
       }
     case ExportKind.svg:
       break;
+  }
+  onProgress?.call(1);
+  return out;
+}
+
+/// Renders the playback range of [d] and writes `<title>.mp4` into [dir] with the
+/// platform encoder (opaque background, even size). Returns the path written, or
+/// an empty list when cancelled or when the platform has no encoder.
+Future<List<String>> writeMp4(DocumentController d, String dir, {double scale = 1, String? watermark, void Function(double)? onProgress, CancelToken? cancel}) async {
+  if (!await VideoEncoder.isAvailable()) return const [];
+  final project = d.project, comp = d.comp, t = comp.timeline;
+  final (w, h) = VideoEncoder.evenSize((comp.width * scale).round(), (comp.height * scale).round());
+  await ensureDir(dir);
+  final path = p.join(dir, '${d.title}.mp4');
+  final enc = await VideoEncoder.begin(path, width: w, height: h, fps: t.fps);
+  final total = (t.rangeEnd - t.rangeStart).clamp(1, 1 << 30);
+  try {
+    onProgress?.call(0);
+    for (var f = t.rangeStart; f < t.rangeEnd; f++) {
+      cancel?.check();
+      var img = renderCompImage(project, comp, f.toDouble(), scale: w / comp.width, background: true, forExport: true, useCamera: true);
+      if (watermark != null) {
+        final marked = applyWatermark(img, watermark);
+        img.dispose();
+        img = marked;
+      }
+      try {
+        // the render may be a pixel larger than the even size: crop by reading only w x h
+        final rgba = await imageToRgba(img, straight: true);
+        await enc.addFrame(_cropRgba(rgba, img.width, img.height, w, h));
+      } finally {
+        img.dispose();
+      }
+      onProgress?.call((f - t.rangeStart + 1) / total * 0.98);
+      await Future<void>.delayed(Duration.zero);
+    }
+    cancel?.check();
+    final ok = await enc.finish();
+    onProgress?.call(1);
+    return ok ? [path] : const [];
+  } on ExportCancelled {
+    await enc.abort();
+    return const [];
+  } catch (_) {
+    await enc.abort();
+    rethrow;
+  }
+}
+
+Uint8List _cropRgba(Uint8List src, int sw, int sh, int w, int h) {
+  if (sw == w && sh == h) return src;
+  final out = Uint8List(w * h * 4);
+  for (var y = 0; y < h && y < sh; y++) {
+    out.setRange(y * w * 4, y * w * 4 + (w < sw ? w : sw) * 4, src, y * sw * 4);
   }
   return out;
 }

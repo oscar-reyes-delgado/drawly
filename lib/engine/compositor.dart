@@ -684,6 +684,10 @@ ui.Image renderCompImage(
   FilterQuality quality = FilterQuality.none,
   Set<String> hidden = const {},
   bool docMode = true,
+  OnionSkin? onion,
+  String? onionLayerId,
+  double lightTable = 0,
+  String? activeLayerId,
 }) {
   final r = region ?? comp.rect;
   final w = math.max(1, (r.width * scale).round()), h = math.max(1, (r.height * scale).round());
@@ -704,6 +708,10 @@ ui.Image renderCompImage(
         live: live,
         hidden: hidden,
         docMode: docMode,
+        onion: onion,
+        onionLayerId: onionLayerId,
+        lightTable: lightTable,
+        activeLayerId: activeLayerId,
       ),
     );
   });

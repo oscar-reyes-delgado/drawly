@@ -10,7 +10,7 @@ import 'theme.dart';
 const Map<CommandCategory, List<String>> kMenuLayout = {
   CommandCategory.file: [
     'file.new', 'file.open', 'file.openOra', '-', 'file.importImage', 'file.importSvg', '-', 'file.save', 'file.saveAs', '-',
-    'file.export', 'file.exportPng', 'file.exportJpg', 'file.exportWebp', 'file.exportGif', 'file.exportApng', 'file.exportSequence', 'file.exportSvg', 'file.exportOra', 'file.exportPsd', 'file.exportLottie', 'file.exportEdl', 'file.exportFcpXml', '-',
+    'file.export', 'file.exportPng', 'file.exportJpg', 'file.exportWebp', 'file.exportMp4', 'file.exportGif', 'file.exportApng', 'file.exportSequence', 'file.exportSvg', 'file.exportOra', 'file.exportPsd', 'file.exportLottie', 'file.exportEdl', 'file.exportFcpXml', '-',
     'file.close',
   ],
   CommandCategory.edit: [
@@ -33,7 +33,7 @@ const Map<CommandCategory, List<String>> kMenuLayout = {
     'view.grid', 'view.pixelGrid', 'view.guides', 'view.rulers', 'view.snapGrid', 'view.snapGuides', '-', 'view.camera',
   ],
   CommandCategory.color: ['color.swap', 'color.reset', '-', 'color.importPalette'],
-  CommandCategory.help: ['app.palette', 'app.prefs'],
+  CommandCategory.help: ['app.palette', 'app.prefs', 'app.easyMode'],
 };
 
 /// Categories shown as top-level menus, in order.

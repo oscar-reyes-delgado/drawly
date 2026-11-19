@@ -14,6 +14,23 @@ import '../model/vector.dart';
 import '../platform/io.dart';
 import 'document_controller.dart';
 
+/// Lets the user stop a long export. Long operations call [check] between
+/// frames; it throws [ExportCancelled] once [cancel] was called.
+class CancelToken {
+  bool _cancelled = false;
+  bool get isCancelled => _cancelled;
+  void cancel() => _cancelled = true;
+  void check() {
+    if (_cancelled) throw const ExportCancelled();
+  }
+}
+
+class ExportCancelled implements Exception {
+  const ExportCancelled();
+  @override
+  String toString() => 'Export cancelled';
+}
+
 /// Writes the project as .drawly to [path] and marks the document clean.
 /// Returns false when the write failed. Edits made while saving stay dirty;
 /// encoding errors propagate without changing the document's file metadata.

@@ -8,9 +8,13 @@ import '../../core/i18n.dart';
 import '../canvas/canvas_view.dart';
 import '../panels/color_panel.dart';
 import 'easy_color_bar.dart';
+import 'easy_export_sheet.dart';
+import 'easy_prefs.dart';
 import 'easy_layers.dart';
 import 'easy_timeline.dart';
 import 'easy_toolbar.dart';
+import 'tutorial.dart';
+import '../../model/layer.dart';
 import '../shell.dart';
 import '../theme.dart';
 import '../../app/file_ops.dart';
@@ -18,8 +22,9 @@ import '../../app/frame_thumbs.dart';
 import '../../app/project_library.dart';
 import '../../model/document.dart';
 import '../../platform/io.dart' as io;
-import '../dialogs/prefs_dialog.dart';
+import '../file_commands.dart';
 import '../home/home_screen.dart';
+import '../../platform/video_encoder.dart';
 
 /// Real tool ids reachable from the easy toolbar.
 final List<String> kEasyToolIds = {for (final t in EasyTool.values) t.toolId}.toList();
@@ -76,6 +81,12 @@ class EasyShell extends StatelessWidget {
   /// Frame thumbnails of the easy timeline, shared by every document.
   static final FrameThumbnailCache thumbs = FrameThumbnailCache(height: 64);
 
+  /// First-run tutorial (bouncing ball).
+  static final TutorialController tutorial = TutorialController(bouncingBallSteps());
+
+  /// Set when an export finishes, for the last tutorial step.
+  static final ValueNotifier<bool> exported = ValueNotifier(false);
+
   /// Layer panel shown on wide screens (the user can hide it).
   static final ValueNotifier<bool> layersVisible = ValueNotifier(true);
 
@@ -99,7 +110,7 @@ class EasyShell extends StatelessWidget {
                 ? Drawer(width: math.min(340.0, box.maxWidth * 0.88), child: SafeArea(child: _LayersBox(doc: doc)))
                 : null,
             body: SafeArea(
-              child: Column(children: [
+              child: _TutorialHost(child: Column(children: [
                 _EasyTopBar(app: app, compact: compact),
                 Expanded(
                   child: doc == null
@@ -124,7 +135,7 @@ class EasyShell extends StatelessWidget {
                     decoration: BoxDecoration(color: context.panel, border: Border(top: BorderSide(color: context.line))),
                     child: EasyTimeline(key: ValueKey(doc), doc: doc, playback: app.playback, thumbs: thumbs, height: short ? 112 : (compact ? 124 : 140)),
                   ),
-              ]),
+              ])),
             ),
           );
         }),
@@ -237,7 +248,7 @@ class _EasyTopBar extends StatelessWidget {
           icon: Icons.ios_share,
           tooltip: tr('Exportar la animación', 'Export the animation'),
           label: compact ? null : tr('Exportar', 'Export'),
-          onTap: d == null ? null : () => app.commands.run('file.export'),
+          onTap: d == null ? null : () => showEasyExportFor(context, d),
         ),
         if (!compact && d != null)
           EasyButton(
@@ -259,11 +270,16 @@ class _EasyTopBar extends StatelessWidget {
           key: const ValueKey('easy.menu'),
           tooltip: tr('Más opciones', 'More options'),
           icon: const Icon(Icons.more_vert),
-          onSelected: (id) => id == 'mode' ? setUiMode(app, 'advanced') : app.commands.run(id),
+          onSelected: (id) => switch (id) {
+            'mode' => setUiMode(app, 'advanced'),
+            'app.prefs' => openEasyPrefs(context),
+            _ => app.commands.run(id),
+          },
           itemBuilder: (context) => [
             PopupMenuItem(value: 'file.new', child: Text(tr('Nuevo proyecto', 'New project'))),
             PopupMenuItem(value: 'file.open', child: Text(tr('Abrir…', 'Open…'))),
             PopupMenuItem(value: 'file.importImage', enabled: d != null, child: Text(tr('Importar imagen…', 'Import image…'))),
+            PopupMenuItem(value: 'file.importSequence', enabled: d != null, child: Text(tr('Importar secuencia de imágenes…', 'Import image sequence…'))),
             PopupMenuItem(value: 'file.importAudio', enabled: d != null, child: Text(tr('Importar audio…', 'Import audio…'))),
             PopupMenuItem(
               value: 'anim.recordVoice',
@@ -327,8 +343,92 @@ class EasyHome extends StatelessWidget {
             restored.dispose();
           },
           onSwitchMode: () => setUiMode(app, 'advanced'),
-          onSettings: () => showPrefsDialog(context),
+          onSettings: () => openEasyPrefs(context),
         );
+      },
+    );
+  }
+}
+
+/// Opens the easy export sheet wired to the real export functions.
+Future<void> showEasyExportFor(BuildContext context, DocumentController d) async {
+  final app = AppState.I;
+  final video = await VideoEncoder.isAvailable();
+  if (!context.mounted) return;
+  String? watermark() => app.settings.watermarkEnabled && app.settings.watermark.isNotEmpty ? app.settings.watermark : null;
+  await showEasyExport(
+    context,
+    d,
+    EasyExportActions(
+      pickFolder: pickExportFolder,
+      write: (o, dir, onProgress, cancel) async => _markExported(await writeExport(d, o, dir, watermark: o.watermark ? watermark() : null, onProgress: onProgress, cancel: cancel)),
+      writeVideo: video ? (dir, scale, onProgress, cancel) async => _markExported(await writeMp4(d, dir, scale: scale, watermark: watermark(), onProgress: onProgress, cancel: cancel)) : null,
+      reveal: io.isDesktopOS ? io.revealInFileManager : null,
+    ),
+  );
+}
+
+/// Settings of the easy mode, with the switch to the advanced interface.
+void openEasyPrefs(BuildContext context) {
+  final app = AppState.I;
+  showEasyPrefs(context, settings: app.settings, onAdvancedMode: () => setUiMode(app, 'advanced'), onRestartTutorial: () {
+    EasyShell.exported.value = false;
+    EasyShell.tutorial.restart();
+    app.settings.update((s) => s
+      ..tutorialDone = false
+      ..easyHints = true);
+  });
+}
+
+List<String> _markExported(List<String> paths) {
+  if (paths.isNotEmpty) EasyShell.exported.value = true;
+  return paths;
+}
+
+/// Feeds the tutorial with what happens in the app and shows it until it is
+/// finished or skipped (then it is remembered in the settings).
+class _TutorialHost extends StatelessWidget {
+  const _TutorialHost({required this.child});
+  final Widget child;
+
+  static TutorialSnapshot snapshot(AppState app) {
+    final d = app.doc;
+    if (d == null) return TutorialSnapshot(toolId: app.activeToolId, brushId: app.ts.brush.id, exported: EasyShell.exported.value);
+    final l = d.activeLayer;
+    var drawn = 0;
+    if (l is PaintLayer) {
+      for (var f = 0; f < d.timeline.length; f++) {
+        if (l.cels.at(f)?.isNotEmpty ?? false) drawn++;
+      }
+    }
+    return TutorialSnapshot(
+      hasDocument: true,
+      toolId: app.activeToolId,
+      brushId: app.ts.brush.id,
+      frameCount: d.timeline.length,
+      framesWithDrawing: drawn,
+      onion: d.onion.enabled,
+      playing: app.playback.playing,
+      exported: EasyShell.exported.value,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final app = AppState.I;
+    final s = app.settings;
+    if (s.tutorialDone || !s.easyHints) return child;
+    final d = app.doc;
+    final t = EasyShell.tutorial;
+    return ListenableBuilder(
+      listenable: Listenable.merge([app, app.ts, app.playback, EasyShell.exported, t, ?d]),
+      builder: (context, _) {
+        t.update(snapshot(app));
+        if (t.finished) {
+          WidgetsBinding.instance.addPostFrameCallback((_) => s.update((x) => x.tutorialDone = true));
+          return child;
+        }
+        return TutorialOverlay(controller: t, child: child);
       },
     );
   }

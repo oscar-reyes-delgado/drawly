@@ -142,6 +142,9 @@ void registerFileCommands(CommandRegistry r, AppState app) {
 }
 
 /// Destination folder as a file-system path (null when cancelled or not a local folder).
+/// Asks for a destination folder (null when cancelled or not a local folder).
+Future<String?> pickExportFolder() => _pickDir();
+
 Future<String?> _pickDir() async {
   final uri = await FilePicker.pickDirectory(dialogTitle: tr('Carpeta de destino', 'Destination folder'));
   if (uri == null) return null;

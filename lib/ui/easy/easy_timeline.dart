@@ -260,7 +260,7 @@ class _EasyTimelineState extends State<EasyTimeline> {
             onSelected: doc.setFps,
             itemBuilder: (_) => [for (final f in const [6, 8, 12, 15, 24, 30]) PopupMenuItem(value: f, child: Text('$f fps'))],
             child: Container(
-              height: 36,
+              height: 44,
               padding: const EdgeInsets.symmetric(horizontal: 10),
               alignment: Alignment.center,
               decoration: BoxDecoration(borderRadius: BorderRadius.circular(8), border: Border.all(color: context.line)),

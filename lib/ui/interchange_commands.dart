@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
@@ -12,6 +13,7 @@ import '../app/document_controller.dart';
 import '../app/interchange.dart';
 import '../core/i18n.dart';
 import '../app/audio_sync.dart';
+import '../app/doc_import.dart';
 import '../engine/audio/wav.dart';
 import '../engine/tiles.dart';
 import '../io/edit_lists.dart';
@@ -84,6 +86,28 @@ void registerInterchangeCommands(CommandRegistry r, AppState app) {
     app.toast('${tr('Audio añadido', 'Audio added')}: ${seconds.toStringAsFixed(1)} s');
   });
 
+  add('file.importSequence', CommandCategory.animation, () => tr('Importar secuencia de imágenes…', 'Import image sequence…'), () async {
+    final files = await FilePicker.pickFiles(dialogTitle: tr('Elige las imágenes (se ordenan por nombre)', 'Pick the images (sorted by name)'), type: FileType.custom, allowedExtensions: const ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp']);
+    if (files.isEmpty) return;
+    final byName = {for (final f in files) f.name: f};
+    final images = <ui.Image>[];
+    try {
+      for (final name in naturalSort(byName.keys)) {
+        final f = byName[name]!;
+        final bytes = f.path == null ? null : await readFileBytes(f.path!);
+        if (bytes == null) continue;
+        images.add(await decodeImageBytes(bytes));
+      }
+      if (images.isEmpty) return;
+      final d = app.doc!;
+      d.importImageSequence(images, p.basenameWithoutExtension(naturalSort(byName.keys).first), start: d.frame);
+      app.toast('${tr('Fotogramas importados', 'Frames imported')}: ${images.length}');
+    } finally {
+      for (final i in images) {
+        i.dispose();
+      }
+    }
+  });
   add('anim.recordVoice', CommandCategory.animation, () => tr('Grabar voz / detener', 'Record voice / stop'), () async {
     final v = app.voice;
     if (v.recording) {

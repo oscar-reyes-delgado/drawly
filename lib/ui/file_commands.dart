@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:archive/archive.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
 
@@ -86,7 +87,18 @@ void registerFileCommands(CommandRegistry r, AppState app) {
     return p.join(dir, '${d.title}.$ext');
   }
 
-  void done(bool ok, String path) => app.toast(ok ? tr('Exportado: ', 'Exported: ') + path : tr('No se pudo exportar', 'Export failed'));
+  /// Hands the written files to the user (save dialog on phones) and reports.
+  Future<void> finish(List<String> written) async {
+    if (written.isEmpty) {
+      app.toast(tr('No se pudo exportar', 'Export failed'));
+      return;
+    }
+    final out = await deliverExports(written);
+    if (out.isEmpty) return; // the user closed the save dialog
+    app.toast(tr('Exportado: ', 'Exported: ') + (out.length == 1 ? out.first : '${out.length} ${tr('archivos', 'files')}'));
+  }
+
+  Future<void> done(bool ok, String path) => finish(ok ? [path] : const []);
 
   String? watermark() => app.settings.watermarkEnabled && app.settings.watermark.isNotEmpty ? app.settings.watermark : null;
 
@@ -94,13 +106,13 @@ void registerFileCommands(CommandRegistry r, AppState app) {
         final path = await exportPath(f.ext);
         if (path == null) return;
         final d = app.doc!;
-        done(await exportStill(d, path, f, frame: d.frame, watermark: watermark()), path);
+        await done(await exportStill(d, path, f, frame: d.frame, watermark: watermark()), path);
       });
 
   Future<void> anim(AnimFormat f) => guarded(tr('Error al exportar', 'Export failed'), () async {
         final path = await exportPath(f == AnimFormat.apng ? 'apng.png' : f.ext);
         if (path == null) return;
-        done(await exportAnimationTo(app.doc!, path, f), path);
+        await done(await exportAnimationTo(app.doc!, path, f), path);
       });
 
   add('file.open', () => tr('Abrir…', 'Open…'), open, shortcut: 'Ctrl+O', needsDocument: false);
@@ -121,7 +133,7 @@ void registerFileCommands(CommandRegistry r, AppState app) {
         if (dir == null) return;
         app.toast(tr('Exportando vídeo…', 'Exporting video…'), duration: const Duration(minutes: 5));
         final out = await writeMp4(app.doc!, dir, watermark: watermark());
-        done(out.isNotEmpty, out.isEmpty ? dir : out.first);
+        await finish(out);
       }));
   add('file.exportSequence', () => tr('Exportar secuencia PNG…', 'Export PNG sequence…'), () {
     guarded(tr('Error al exportar', 'Export failed'), () async {
@@ -129,14 +141,14 @@ void registerFileCommands(CommandRegistry r, AppState app) {
       final dir = await _pickDir();
       if (dir == null) return;
       final files = await exportSequence(d, dir, d.title);
-      app.toast(tr('Exportados ${files.length} fotogramas', 'Exported ${files.length} frames'));
+      await finish(files);
     });
   });
   add('file.exportSvg', () => tr('Exportar SVG (capa vectorial)…', 'Export SVG (vector layer)…'), () {
     guarded(tr('Error al exportar', 'Export failed'), () async {
       final path = await exportPath('svg');
       if (path == null) return;
-      done(await exportSvgTo(app.doc!, path), path);
+      await done(await exportSvgTo(app.doc!, path), path);
     });
   });
 }
@@ -146,9 +158,62 @@ void registerFileCommands(CommandRegistry r, AppState app) {
 Future<String?> pickExportFolder() => _pickDir();
 
 Future<String?> _pickDir() async {
+  if (exportsViaSaveDialog) {
+    // phones: the system folder picker gives content:// URIs, not paths; write to a
+    // private staging folder and hand the result over with the save dialog
+    final dir = p.join((await tempDir()) ?? '.', 'drawly_export', '${DateTime.now().millisecondsSinceEpoch}');
+    await ensureDir(dir);
+    return dir;
+  }
   final uri = await FilePicker.pickDirectory(dialogTitle: tr('Carpeta de destino', 'Destination folder'));
   if (uri == null) return null;
   return uri.scheme == 'file' ? uri.toFilePath() : null;
+}
+
+/// True on phones and tablets: exports are written to a staging folder and then
+/// saved where the user chooses with the system «Save as» dialog.
+bool get exportsViaSaveDialog => hasFileSystem && !isDesktopOS;
+
+String _mimeOf(String path) => switch (p.extension(path).toLowerCase()) {
+      '.png' => 'image/png',
+      '.gif' => 'image/gif',
+      '.jpg' || '.jpeg' => 'image/jpeg',
+      '.webp' => 'image/webp',
+      '.mp4' => 'video/mp4',
+      '.svg' => 'image/svg+xml',
+      '.json' => 'application/json',
+      '.zip' => 'application/zip',
+      _ => 'application/octet-stream',
+    };
+
+/// On desktop returns [written] unchanged. On phones asks where to save them
+/// (several files go in one .zip) and returns what was saved; empty when the
+/// user cancels. The staging copies are deleted.
+Future<List<String>> deliverExports(List<String> written) async {
+  if (!exportsViaSaveDialog || written.isEmpty) return written;
+  try {
+    String name;
+    Uint8List? bytes;
+    if (written.length == 1) {
+      name = p.basename(written.single);
+      bytes = await readFileBytes(written.single);
+    } else {
+      final archive = Archive();
+      for (final f in written) {
+        final b = await readFileBytes(f);
+        if (b != null) archive.addFile(ArchiveFile.bytes(p.basename(f), b));
+      }
+      name = '${p.basenameWithoutExtension(written.first).replaceAll(RegExp(r'_\d+$'), '')}.zip';
+      bytes = Uint8List.fromList(ZipEncoder().encodeBytes(archive));
+    }
+    if (bytes == null) return const [];
+    final uri = await FilePicker.saveFile(dialogTitle: tr('Guardar exportación', 'Save export'), fileName: name, bytes: bytes, mimeType: _mimeOf(name));
+    return uri == null ? const [] : [name];
+  } finally {
+    for (final f in written) {
+      await deleteFile(f);
+    }
+  }
 }
 
 /// Opens the export dialog, asks for a folder and writes the result.
@@ -163,13 +228,24 @@ Future<void> _exportWithDialog(AppState app) async {
     if (dir == null) return;
     final path = p.join(dir, '${d.title}.svg');
     final ok = await exportSvgTo(d, path);
-    app.toast(ok ? tr('Exportado: ', 'Exported: ') + path : tr('La capa activa no es vectorial', 'The active layer is not a vector layer'));
+    if (!ok) {
+      app.toast(tr('La capa activa no es vectorial', 'The active layer is not a vector layer'));
+      return;
+    }
+    final out = await deliverExports([path]);
+    if (out.isNotEmpty) app.toast(tr('Exportado: ', 'Exported: ') + out.first);
     return;
   }
   final dir = await _pickDir();
   if (dir == null) return;
   final written = await writeExport(d, o, dir, watermark: o.watermark && app.settings.watermark.isNotEmpty ? app.settings.watermark : null);
-  app.toast(written.isEmpty ? tr('No se pudo exportar', 'Export failed') : tr('Exportado: ', 'Exported: ') + (written.length == 1 ? written.first : '${written.length} ${tr('archivos', 'files')}'));
+  if (written.isEmpty) {
+    app.toast(tr('No se pudo exportar', 'Export failed'));
+    return;
+  }
+  final out = await deliverExports(written);
+  if (out.isEmpty) return;
+  app.toast(tr('Exportado: ', 'Exported: ') + (out.length == 1 ? out.first : '${out.length} ${tr('archivos', 'files')}'));
 }
 
 /// Renders and writes [o] into [dir]; returns the paths written (empty on failure).

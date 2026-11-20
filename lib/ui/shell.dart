@@ -13,6 +13,8 @@ import 'dialogs/new_document.dart';
 import 'dialogs/prefs_dialog.dart';
 import 'dialogs/prompts.dart';
 import 'easy/easy_shell.dart';
+import 'library/animation_player.dart';
+import 'library/library_page.dart';
 import 'menu_bar.dart';
 import 'panels/brush_panel.dart';
 import 'panels/color_panel.dart';
@@ -57,6 +59,27 @@ void registerShellCommands(CommandRegistry r, AppState app) {
     needsDocument: false,
   ));
   r.add(Command(
+    id: 'file.library',
+    category: CommandCategory.file,
+    label: () => tr('Biblioteca de animaciones…', 'Animation library…'),
+    run: () {
+      final c = ctx();
+      if (c != null) showLibraryPage(c);
+    },
+    shortcut: 'Ctrl+Shift+O',
+    needsDocument: false,
+  ));
+  r.add(Command(
+    id: 'anim.watch',
+    category: CommandCategory.animation,
+    label: () => tr('Ver animación a pantalla completa', 'Watch animation full screen'),
+    run: () {
+      final c = ctx(), d = app.doc;
+      if (c != null && d != null) showAnimationPlayer(c, d.project, title: d.title);
+    },
+    shortcut: 'Ctrl+Enter',
+  ));
+  r.add(Command(
     id: 'app.easyMode',
     category: CommandCategory.help,
     label: () => tr('Cambiar a Modo Fácil', 'Switch to Easy mode'),
@@ -98,6 +121,26 @@ class Shell extends StatelessWidget {
   /// Timeline shown or hidden by the user; null = automatic (hidden on short screens).
   static final ValueNotifier<bool?> timelineVisible = ValueNotifier(null);
 
+  /// Timeline height while its top edge is being dragged.
+  static final ValueNotifier<double?> _timelineDrag = ValueNotifier(null);
+
+  /// Tallest the timeline may get (the canvas keeps the rest).
+  static double maxTimelineHeight(double screen) => math.max(140.0, math.min(screen * 0.7, screen - 300));
+
+  /// Current timeline height: the one the user chose, or automatic.
+  static double timelineHeight(AppState app, double screen, bool short, bool compact) {
+    final auto = short ? 120.0 : (compact ? 150.0 : 190.0);
+    final chosen = app.settings.advTimelineHeight;
+    return (chosen > 0 ? chosen : auto).clamp(100.0, maxTimelineHeight(screen));
+  }
+
+  /// Maximises the timeline, or brings it back to the automatic height.
+  static void toggleTimelineMax(AppState app, double screen, bool short, bool compact) {
+    final max = maxTimelineHeight(screen);
+    final big = timelineHeight(app, screen, short, compact) >= max * 0.9;
+    app.settings.update((s) => s.advTimelineHeight = big ? 0 : max);
+  }
+
   @override
   Widget build(BuildContext context) {
     final app = AppState.I;
@@ -106,7 +149,7 @@ class Shell extends StatelessWidget {
       autofocus: true,
       onKeyEvent: app.handleKey,
       child: ListenableBuilder(
-        listenable: Listenable.merge([app, timelineVisible]),
+        listenable: Listenable.merge([app, app.settings, timelineVisible, _timelineDrag]),
         builder: (context, _) => LayoutBuilder(builder: (context, box) {
           final doc = app.doc;
           final compact = box.maxWidth < compactWidth;
@@ -130,19 +173,43 @@ class Shell extends StatelessWidget {
                     if (doc != null) _ToolBar(app: app),
                     Expanded(
                       child: doc == null
-                          ? EmptyWorkspace(onNew: () => app.commands.run('file.new'), onOpen: () => app.commands.run('file.open'))
+                          ? EmptyWorkspace(
+                              onNew: () => app.commands.run('file.new'),
+                              onOpen: () => app.commands.run('file.open'),
+                              onLibrary: () => app.commands.run('file.library'),
+                            )
                           : CanvasView(key: ValueKey(doc), doc: doc),
                     ),
                     if (doc != null && !compact) SizedBox(width: 280, child: SidePanels(doc: doc)),
                   ]),
                 ),
                 if (doc != null && showTimeline)
+                  PanelResizeHandle(
+                    key: const ValueKey('timeline-resize'),
+                    onDrag: (dy) => _timelineDrag.value = ((_timelineDrag.value ?? timelineHeight(app, box.maxHeight, short, compact)) - dy)
+                        .clamp(100.0, maxTimelineHeight(box.maxHeight)),
+                    onDragEnd: () {
+                      final h = _timelineDrag.value;
+                      _timelineDrag.value = null;
+                      if (h != null) app.settings.update((s) => s.advTimelineHeight = h);
+                    },
+                    onDoubleTap: () => toggleTimelineMax(app, box.maxHeight, short, compact),
+                  ),
+                if (doc != null && showTimeline)
                   Container(
-                    height: short ? 120 : (compact ? 150 : 190),
+                    height: _timelineDrag.value ?? timelineHeight(app, box.maxHeight, short, compact),
                     decoration: BoxDecoration(color: context.panel, border: Border(top: BorderSide(color: context.line))),
                     child: TimelinePanel(key: ValueKey(doc), doc: doc, playback: app.playback),
                   ),
-                _StatusBar(app: app, timelineShown: showTimeline),
+                _StatusBar(
+                  app: app,
+                  timelineShown: showTimeline,
+                  timelineMaximized: timelineHeight(app, box.maxHeight, short, compact) >= maxTimelineHeight(box.maxHeight) * 0.9,
+                  onMaximizeTimeline: () {
+                    Shell.timelineVisible.value = true;
+                    toggleTimelineMax(app, box.maxHeight, short, compact);
+                  },
+                ),
               ]),
             ),
           );
@@ -226,6 +293,18 @@ class _TopBar extends StatelessWidget {
       const AppMenuBar(),
       const VSep(),
       PanelButton(icon: Icons.add, tooltip: tr('Nuevo', 'New'), onTap: () => app.commands.run('file.new')),
+      PanelButton(
+        key: const ValueKey('open-library'),
+        icon: Icons.video_library_outlined,
+        tooltip: tr('Biblioteca de animaciones (Ctrl+Mayús+O)', 'Animation library (Ctrl+Shift+O)'),
+        onTap: () => app.commands.run('file.library'),
+      ),
+      PanelButton(
+        key: const ValueKey('watch-animation'),
+        icon: Icons.play_circle_outline,
+        tooltip: tr('Ver animación a pantalla completa (Ctrl+Intro)', 'Watch animation full screen (Ctrl+Enter)'),
+        onTap: d == null ? null : () => app.commands.run('anim.watch'),
+      ),
       PanelButton(icon: Icons.undo, tooltip: tr('Deshacer', 'Undo'), onTap: d != null && d.history.canUndo ? () => app.commands.run('edit.undo') : null),
       PanelButton(icon: Icons.redo, tooltip: tr('Rehacer', 'Redo'), onTap: d != null && d.history.canRedo ? () => app.commands.run('edit.redo') : null),
       const VSep(),
@@ -300,9 +379,10 @@ class _ToolBar extends StatelessWidget {
 }
 
 class _StatusBar extends StatelessWidget {
-  const _StatusBar({required this.app, this.timelineShown = true});
+  const _StatusBar({required this.app, this.timelineShown = true, this.timelineMaximized = false, this.onMaximizeTimeline});
   final AppState app;
-  final bool timelineShown;
+  final bool timelineShown, timelineMaximized;
+  final VoidCallback? onMaximizeTimeline;
 
   @override
   Widget build(BuildContext context) {
@@ -319,6 +399,18 @@ class _StatusBar extends StatelessWidget {
             ListenableBuilder(
               listenable: d.viewSignal,
               builder: (_, _) => Text('${(d.view.zoom * 100).round()} %  ·  ${d.comp.width}×${d.comp.height}', style: kTiny.copyWith(color: context.dim)),
+            ),
+          if (d != null && onMaximizeTimeline != null)
+            InkWell(
+              key: const ValueKey('maximize-timeline'),
+              onTap: onMaximizeTimeline,
+              child: Padding(
+                padding: const EdgeInsets.only(left: 8),
+                child: Tooltip(
+                  message: timelineMaximized ? tr('Línea de tiempo a tamaño normal', 'Timeline at normal size') : tr('Agrandar la línea de tiempo', 'Enlarge the timeline'),
+                  child: Icon(timelineMaximized ? Icons.close_fullscreen : Icons.open_in_full, size: 14, color: context.dim),
+                ),
+              ),
             ),
           if (d != null)
             InkWell(

@@ -437,8 +437,9 @@ class _OverlayPainter extends CustomPainter {
 
 /// Placeholder shown when no document is open.
 class EmptyWorkspace extends StatelessWidget {
-  const EmptyWorkspace({super.key, required this.onNew, required this.onOpen});
+  const EmptyWorkspace({super.key, required this.onNew, required this.onOpen, this.onLibrary});
   final VoidCallback onNew, onOpen;
+  final VoidCallback? onLibrary;
 
   @override
   Widget build(BuildContext context) {
@@ -448,10 +449,16 @@ class EmptyWorkspace extends StatelessWidget {
         const SizedBox(height: 12),
         Text('Drawly', style: Theme.of(context).textTheme.headlineSmall),
         const SizedBox(height: 16),
-        Row(mainAxisSize: MainAxisSize.min, children: [
+        Wrap(spacing: 8, runSpacing: 8, alignment: WrapAlignment.center, children: [
           FilledButton.icon(onPressed: onNew, icon: const Icon(Icons.add, size: 18), label: const Text('Nuevo / New')),
-          const SizedBox(width: 8),
           OutlinedButton.icon(onPressed: onOpen, icon: const Icon(Icons.folder_open, size: 18), label: const Text('Abrir / Open')),
+          if (onLibrary != null)
+            OutlinedButton.icon(
+              key: const ValueKey('empty.library'),
+              onPressed: onLibrary,
+              icon: const Icon(Icons.video_library_outlined, size: 18),
+              label: const Text('Biblioteca / Library'),
+            ),
         ]),
       ]),
     );

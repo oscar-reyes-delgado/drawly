@@ -228,6 +228,10 @@ class _TutorialOverlayState extends State<TutorialOverlay> {
       _hole = null; // a later restart must not show the old hole
       return child;
     }
+    // a menu, brush panel, sheet or dialog is open on top: step aside until it
+    // closes (the dimming and the bubble would cover it or point behind it)
+    final route = ModalRoute.of(context);
+    if (route != null && !route.isCurrent) return child;
     _locate();
     final i = c.index;
     return LayoutBuilder(builder: (context, box) {

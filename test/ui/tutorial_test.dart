@@ -97,4 +97,36 @@ void main() {
     final state = tester.state(find.byType(TutorialOverlay));
     expect((state as dynamic).debugHole, isNull, reason: 'step 1 target is not in the tree');
   });
+
+  testWidgets('the tutorial steps aside while a menu or dialog is open and comes back after', (tester) async {
+    final c = TutorialController(bouncingBallSteps());
+    c.update(const TutorialSnapshot(hasDocument: true, toolId: 'brush', brushId: 'fineliner', framesWithDrawing: 1));
+    await tester.pumpWidget(MaterialApp(
+      theme: buildTheme(Settings(), Brightness.dark),
+      home: Scaffold(
+        body: TutorialOverlay(
+          controller: c,
+          child: Builder(
+            builder: (context) => Center(
+              child: ElevatedButton(
+                key: const ValueKey('easy.addFrame'),
+                onPressed: () => showDialog<void>(context: context, builder: (_) => const AlertDialog(title: Text('panel'))),
+                child: const Text('+'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+    await tester.pump();
+    expect(find.byKey(const ValueKey('tutorial.bubble')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('easy.addFrame')));
+    await tester.pumpAndSettle();
+    expect(find.text('panel'), findsOneWidget);
+    expect(find.byKey(const ValueKey('tutorial.bubble')), findsNothing, reason: 'hidden under an open dialog');
+    await tester.tapAt(const Offset(5, 5)); // close the dialog
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('tutorial.bubble')), findsOneWidget, reason: 'back once it closes');
+  });
 }

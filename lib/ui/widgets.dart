@@ -42,6 +42,32 @@ class PanelButton extends StatelessWidget {
 }
 
 /// Label + slider + editable value on one row.
+/// Thin horizontal bar that resizes the panel below it by dragging up or down.
+class PanelResizeHandle extends StatelessWidget {
+  const PanelResizeHandle({super.key, required this.onDrag, this.onDragEnd, this.onDoubleTap, this.height = 8});
+
+  /// Vertical movement in logical pixels (negative = upwards).
+  final ValueChanged<double> onDrag;
+  final VoidCallback? onDragEnd;
+  final VoidCallback? onDoubleTap;
+  final double height;
+
+  @override
+  Widget build(BuildContext context) => MouseRegion(
+        cursor: SystemMouseCursors.resizeRow,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onVerticalDragUpdate: (d) => onDrag(d.delta.dy),
+          onVerticalDragEnd: (_) => onDragEnd?.call(),
+          onDoubleTap: onDoubleTap,
+          child: SizedBox(
+            height: height,
+            child: Center(child: Container(width: 40, height: 3, decoration: BoxDecoration(color: context.line, borderRadius: BorderRadius.circular(2)))),
+          ),
+        ),
+      );
+}
+
 class MiniSlider extends StatelessWidget {
   const MiniSlider({
     super.key,

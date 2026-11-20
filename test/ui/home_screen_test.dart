@@ -40,6 +40,9 @@ Future<void> _pumpHome(
   AutosaveService? autosave,
   void Function(DocumentController restored)? onRestore,
   VoidCallback? onSettings,
+  Future<void> Function(String path)? onPreview,
+  VoidCallback? onBack,
+  bool switchToEasy = false,
   Size size = const Size(1280, 800),
 }) async {
   tester.view.physicalSize = size;
@@ -61,6 +64,9 @@ Future<void> _pumpHome(
         autosave: autosave,
         onRestore: onRestore,
         onSettings: onSettings,
+        onPreview: onPreview,
+        onBack: onBack,
+        switchToEasy: switchToEasy,
       ),
     ),
   );
@@ -109,6 +115,34 @@ void main() {
     await tester.tap(find.text('Alpha'));
     await tester.pumpAndSettle();
     expect(openedPath, p.normalize(File(p1).absolute.path));
+  });
+
+  testWidgets('the play button on a card previews that project without opening it', (tester) async {
+    final p1 = p.join(tempDir.path, 'Alpha.drawly');
+    await tester.runAsync(() => _writeBlankProject(p1));
+    String? previewed, opened;
+    await _pumpHome(
+      tester,
+      settings: settings,
+      library: ProjectLibrary(tempDir.path),
+      onOpen: (path) async => opened = path,
+      onPreview: (path) async => previewed = path,
+    );
+    final abs = p.normalize(File(p1).absolute.path);
+    await tester.tap(find.byKey(ValueKey('easy.home.play.$abs')));
+    await tester.pumpAndSettle();
+    expect(previewed, abs);
+    expect(opened, isNull);
+  });
+
+  testWidgets('as a page it has a back arrow and offers the easy mode', (tester) async {
+    var back = 0, mode = 0;
+    await _pumpHome(tester, settings: settings, library: null, onBack: () => back++, switchToEasy: true, onSwitchMode: () => mode++);
+    await tester.tap(find.byKey(const ValueKey('easy.home.back')));
+    await tester.tap(find.byKey(const ValueKey('easy.home.switchMode')));
+    await tester.pump();
+    expect([back, mode], [1, 1]);
+    expect(find.text(tr('Modo Fácil', 'Easy mode')), findsOneWidget);
   });
 
   testWidgets('+ New calls onCreate with 1-frame project having Fondo and Dibujo layers and path inside library', (tester) async {

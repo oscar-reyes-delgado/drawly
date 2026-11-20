@@ -34,6 +34,10 @@ class HomeScreen extends StatefulWidget {
     this.autosave,
     this.onRestore,
     this.onSettings,
+    this.onPreview,
+    this.onBack,
+    this.switchToEasy = false,
+    this.title = 'Drawly',
   });
 
   final Settings settings;
@@ -45,6 +49,16 @@ class HomeScreen extends StatefulWidget {
   final AutosaveService? autosave;
   final void Function(DocumentController restored)? onRestore;
   final VoidCallback? onSettings;
+
+  /// Plays a project full screen without opening it (the ▶ on each card).
+  final Future<void> Function(String path)? onPreview;
+
+  /// Shows a back arrow (when the screen is opened as a page).
+  final VoidCallback? onBack;
+
+  /// The mode button offers the easy mode instead of the advanced one.
+  final bool switchToEasy;
+  final String title;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -323,6 +337,9 @@ class _HomeScreenState extends State<HomeScreen> {
             _Header(
               onSettings: widget.onSettings,
               onSwitchMode: widget.onSwitchMode,
+              onBack: widget.onBack,
+              switchToEasy: widget.switchToEasy,
+              title: widget.title,
             ),
             Expanded(
               child: LayoutBuilder(
@@ -395,6 +412,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                       entry: entry,
                                       thumbnailFuture: _thumbnailFuture(entry),
                                       onTap: () => widget.onOpen(entry.path),
+                                      onPreview: widget.onPreview == null ? null : () => widget.onPreview!(entry.path),
                                       onAction: (action) => _handleCardAction(entry, action),
                                     );
                                   },
@@ -423,10 +441,13 @@ class _HomeScreenState extends State<HomeScreen> {
 }
 
 class _Header extends StatelessWidget {
-  const _Header({required this.onSettings, required this.onSwitchMode});
+  const _Header({required this.onSettings, required this.onSwitchMode, this.onBack, this.switchToEasy = false, this.title = 'Drawly'});
 
   final VoidCallback? onSettings;
   final VoidCallback onSwitchMode;
+  final VoidCallback? onBack;
+  final bool switchToEasy;
+  final String title;
 
   @override
   Widget build(BuildContext context) {
@@ -440,11 +461,14 @@ class _Header extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(Icons.brush_rounded, size: 24, color: context.cs.primary),
+          if (onBack != null)
+            EasyButton(key: const ValueKey('easy.home.back'), icon: Icons.arrow_back, tooltip: tr('Volver', 'Back'), onTap: onBack)
+          else
+            Icon(Icons.brush_rounded, size: 24, color: context.cs.primary),
           const SizedBox(width: 10),
-          const Expanded(
+          Expanded(
             child: Text(
-              'Drawly',
+              title,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
@@ -461,8 +485,10 @@ class _Header extends StatelessWidget {
           EasyButton(
             key: const ValueKey('easy.home.switchMode'),
             icon: Icons.tune,
-            tooltip: tr('Cambiar a Modo Avanzado', 'Switch to Advanced mode'),
-            label: compact ? tr('Avanzado', 'Advanced') : tr('Modo Avanzado', 'Advanced mode'),
+            tooltip: switchToEasy ? tr('Cambiar a Modo Fácil', 'Switch to Easy mode') : tr('Cambiar a Modo Avanzado', 'Switch to Advanced mode'),
+            label: switchToEasy
+                ? (compact ? tr('Fácil', 'Easy') : tr('Modo Fácil', 'Easy mode'))
+                : (compact ? tr('Avanzado', 'Advanced') : tr('Modo Avanzado', 'Advanced mode')),
             onTap: onSwitchMode,
           ),
         ],
@@ -734,11 +760,13 @@ class _ProjectCard extends StatelessWidget {
     required this.thumbnailFuture,
     required this.onTap,
     required this.onAction,
+    this.onPreview,
   });
 
   final ProjectEntry entry;
   final Future<Uint8List?> thumbnailFuture;
   final VoidCallback onTap;
+  final VoidCallback? onPreview;
   final ValueChanged<_CardAction> onAction;
 
   void _openContextMenu(BuildContext context, Offset globalPos) async {
@@ -796,15 +824,17 @@ class _ProjectCard extends StatelessWidget {
                     builder: (context, snap) {
                       final bytes = snap.data;
                       if (bytes == null) {
-                        return Center(
-                          child: Icon(Icons.movie_creation_outlined, size: 32, color: context.dim),
-                        );
+                        return Stack(fit: StackFit.expand, children: [
+                          Center(child: Icon(Icons.movie_creation_outlined, size: 32, color: context.dim)),
+                          if (onPreview != null) _PlayBadge(path: entry.path, onTap: onPreview!),
+                        ]);
                       }
                       return Stack(
                         fit: StackFit.expand,
                         children: [
                           const CustomPaint(painter: CheckerPainter(cell: 8)),
                           Image.memory(bytes, fit: BoxFit.contain, gaplessPlayback: true),
+                          if (onPreview != null) _PlayBadge(path: entry.path, onTap: onPreview!),
                         ],
                       );
                     },
@@ -1164,4 +1194,32 @@ String _formatRelativeDate(DateTime date) {
   final d = date.day.toString().padLeft(2, '0');
   final m = date.month.toString().padLeft(2, '0');
   return '$d/$m/${date.year}';
+}
+
+/// Round play button over a project thumbnail: plays the animation without opening it.
+class _PlayBadge extends StatelessWidget {
+  const _PlayBadge({required this.path, required this.onTap});
+  final String path;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Align(
+        alignment: Alignment.bottomRight,
+        child: Padding(
+          padding: const EdgeInsets.all(8),
+          child: Tooltip(
+            message: tr('Ver la animación', 'Watch the animation'),
+            child: Material(
+              color: Colors.black54,
+              shape: const CircleBorder(),
+              child: InkWell(
+                key: ValueKey('easy.home.play.$path'),
+                customBorder: const CircleBorder(),
+                onTap: onTap,
+                child: const SizedBox(width: 44, height: 44, child: Icon(Icons.play_arrow_rounded, color: Colors.white, size: 30)),
+              ),
+            ),
+          ),
+        ),
+      );
 }

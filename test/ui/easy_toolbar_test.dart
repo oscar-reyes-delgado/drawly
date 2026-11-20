@@ -4,6 +4,8 @@ import 'package:drawly/app/settings.dart';
 import 'package:drawly/app/tool_state.dart';
 import 'package:drawly/ui/easy/easy_toolbar.dart';
 import 'package:drawly/ui/theme.dart';
+import 'package:drawly/app/app_state.dart';
+import 'package:drawly/engine/brush/stabilizer.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -73,11 +75,10 @@ void main() {
     expect(brushSemantics.flagsCollection.isSelected, Tristate.isFalse);
   });
 
-  testWidgets('size panel slider changes size and More -> Estabilizar changes smoothing', (tester) async {
+  testWidgets('size panel slider changes size and More -> Estabilizar picks a stabilizer preset', (tester) async {
     final ts = ToolState();
     ts.selectBrush(ts.brushes.firstWhere((b) => b.id == 'round_brush'));
     final initialSize = ts.brush.size;
-    final initialSmoothing = ts.brush.smoothing;
 
     await tester.pumpWidget(_wrap(EasyToolbar(
       ts: ts,
@@ -97,11 +98,25 @@ void main() {
     await tester.tap(find.byKey(const Key('easy.size.more')));
     await tester.pumpAndSettle();
 
-    final smoothSlider = find.byKey(const Key('easy.size.smoothing'));
-    expect(smoothSlider, findsOneWidget);
-    await tester.drag(smoothSlider, const Offset(80, 0));
+    final s = AppState.I.settings;
+    await tester.tap(find.byKey(const Key('easy.stab.rope')));
     await tester.pump();
-    expect(ts.brush.smoothing, isNot(initialSmoothing));
+    expect(s.stabilizerMode, StabilizerMode.rope);
+    await tester.tap(find.byKey(const Key('easy.stab.strong')));
+    await tester.pump();
+    expect(s.stabilizerMode, StabilizerMode.average);
+    expect(EasyStabilizerChoice.current(s), 'strong');
+    await tester.tap(find.byKey(const Key('easy.stab.super')));
+    await tester.pump();
+    expect(s.stabilizerMode, StabilizerMode.superStable);
+    expect(find.byKey(const Key('easy.stab.level')), findsOneWidget);
+    await tester.drag(find.byKey(const Key('easy.stab.level')), const Offset(500, 0));
+    await tester.pump();
+    expect(stabilizerLevel(s.stabilizerStrength), 10);
+    await tester.tap(find.byKey(const Key('easy.stab.none')));
+    await tester.pump();
+    expect(s.stabilizerStrength, 0);
+    expect(find.byKey(const Key('easy.stab.level')), findsNothing);
   });
 
   testWidgets('size button is disabled when bucket is active', (tester) async {

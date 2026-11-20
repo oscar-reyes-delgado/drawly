@@ -17,13 +17,13 @@ import 'tutorial.dart';
 import '../../model/layer.dart';
 import '../shell.dart';
 import '../theme.dart';
-import '../../app/file_ops.dart';
+import '../../app/doc_frames.dart';
+import '../../app/doc_timeline.dart';
 import '../../app/frame_thumbs.dart';
-import '../../app/project_library.dart';
-import '../../model/document.dart';
 import '../../platform/io.dart' as io;
 import '../file_commands.dart';
-import '../home/home_screen.dart';
+import '../library/animation_player.dart';
+import '../library/library_page.dart';
 import '../../platform/video_encoder.dart';
 
 /// Real tool ids reachable from the easy toolbar.
@@ -98,12 +98,14 @@ class EasyShell extends StatelessWidget {
       autofocus: true,
       onKeyEvent: app.handleKey,
       child: ListenableBuilder(
-        listenable: Listenable.merge([app, layersVisible, Shell.timelineVisible]),
+        listenable: Listenable.merge([app, app.settings, layersVisible]),
         builder: (context, _) => LayoutBuilder(builder: (context, box) {
           final doc = app.doc;
           final compact = box.maxWidth < compactWidth;
           final short = box.maxHeight < 560;
-          final showTimeline = Shell.timelineVisible.value ?? !short;
+          final panels = app.settings.panelVisible;
+          final toolsOpen = panels['easy.tools'] ?? true;
+          final timelineOpen = panels['easy.timeline'] ?? !short;
           return Scaffold(
             backgroundColor: context.workspace,
             endDrawer: compact && doc != null
@@ -116,9 +118,9 @@ class EasyShell extends StatelessWidget {
                   child: doc == null
                       ? const EasyHome()
                       : Row(children: [
-                          Container(
-                            width: 68,
-                            decoration: BoxDecoration(color: context.panel, border: Border(right: BorderSide(color: context.line))),
+                          _FoldingTools(
+                            open: toolsOpen,
+                            onToggle: () => togglePanel(app, 'easy.tools', toolsOpen),
                             child: EasyToolbar(
                               ts: app.ts,
                               activeToolId: app.activeToolId,
@@ -130,10 +132,17 @@ class EasyShell extends StatelessWidget {
                           if (!compact && layersVisible.value) SizedBox(width: 260, child: _LayersBox(doc: doc)),
                         ]),
                 ),
-                if (doc != null && showTimeline)
+                if (doc != null)
                   Container(
                     decoration: BoxDecoration(color: context.panel, border: Border(top: BorderSide(color: context.line))),
-                    child: EasyTimeline(key: ValueKey(doc), doc: doc, playback: app.playback, thumbs: thumbs, height: short ? 112 : (compact ? 124 : 140)),
+                    child: _FoldingTimeline(
+                      open: timelineOpen,
+                      doc: doc,
+                      onToggle: () => togglePanel(app, 'easy.timeline', timelineOpen),
+                      autoHeight: short ? 112 : (compact ? 124 : 140),
+                      maxHeight: math.max(160.0, box.maxHeight * 0.6),
+                      builder: (h) => EasyTimeline(key: ValueKey(doc), doc: doc, playback: app.playback, thumbs: thumbs, height: h),
+                    ),
                   ),
               ])),
             ),
@@ -242,13 +251,20 @@ class _EasyTopBar extends StatelessWidget {
         const SizedBox(width: 6),
         EasyButton(icon: Icons.undo, tooltip: tr('Deshacer (Ctrl+Z)', 'Undo (Ctrl+Z)'), onTap: d != null && d.history.canUndo ? () => app.commands.run('edit.undo') : null),
         EasyButton(icon: Icons.redo, tooltip: tr('Rehacer (Ctrl+Y)', 'Redo (Ctrl+Y)'), onTap: d != null && d.history.canRedo ? () => app.commands.run('edit.redo') : null),
-        EasyButton(icon: Icons.save_outlined, tooltip: tr('Guardar (Ctrl+S)', 'Save (Ctrl+S)'), onTap: d == null ? null : () => app.commands.run('file.save')),
+        // phones: no room for Save, and the easy mode saves by itself
+        if (!compact) EasyButton(icon: Icons.save_outlined, tooltip: tr('Guardar (Ctrl+S)', 'Save (Ctrl+S)'), onTap: d == null ? null : () => app.commands.run('file.save')),
         EasyButton(
           key: const ValueKey('easy.export'),
           icon: Icons.ios_share,
           tooltip: tr('Exportar la animación', 'Export the animation'),
           label: compact ? null : tr('Exportar', 'Export'),
           onTap: d == null ? null : () => showEasyExportFor(context, d),
+        ),
+        EasyButton(
+          key: const ValueKey('easy.watch'),
+          icon: Icons.play_circle_outline,
+          tooltip: tr('Ver la animación a pantalla completa', 'Watch the animation full screen'),
+          onTap: d == null ? null : () => showAnimationPlayer(context, d.project, title: d.title),
         ),
         if (!compact && d != null)
           EasyButton(
@@ -277,6 +293,7 @@ class _EasyTopBar extends StatelessWidget {
           },
           itemBuilder: (context) => [
             PopupMenuItem(value: 'file.new', child: Text(tr('Nuevo proyecto', 'New project'))),
+            if (compact) PopupMenuItem(value: 'file.save', enabled: d != null, child: Text(tr('Guardar', 'Save'))),
             PopupMenuItem(value: 'file.open', child: Text(tr('Abrir…', 'Open…'))),
             PopupMenuItem(value: 'file.importImage', enabled: d != null, child: Text(tr('Importar imagen…', 'Import image…'))),
             PopupMenuItem(value: 'file.importSequence', enabled: d != null, child: Text(tr('Importar secuencia de imágenes…', 'Import image sequence…'))),
@@ -296,58 +313,12 @@ class _EasyTopBar extends StatelessWidget {
   }
 }
 
-/// Projects folder of the easy mode (null on the web).
-final Future<ProjectLibrary?> easyLibrary = () async {
-  if (!io.hasFileSystem) return null;
-  try {
-    return ProjectLibrary(await ProjectLibrary.defaultDir());
-  } catch (_) {
-    return null;
-  }
-}();
-
-/// Start screen wired to the app: new projects are saved in the library at once.
+/// Start screen of the easy mode (the project library with play buttons).
 class EasyHome extends StatelessWidget {
   const EasyHome({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final app = AppState.I;
-    return FutureBuilder<ProjectLibrary?>(
-      future: easyLibrary,
-      builder: (context, snap) {
-        if (snap.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
-        return HomeScreen(
-          settings: app.settings,
-          library: snap.data,
-          autosave: app.autosave,
-          onCreate: (Project project, String name, String? path) async {
-            final d = app.addDocument(project, title: name, path: path);
-            if (path != null && await saveProjectTo(d, path)) app.settings.addRecent(path);
-          },
-          onOpen: (path) async {
-            try {
-              final c = await openProjectFrom(path);
-              app.addDocument(c.project, title: c.title, path: c.filePath);
-              c.dispose();
-              app.settings.addRecent(path);
-            } catch (e) {
-              app.toast('${tr('No se pudo abrir', 'Could not open')}: $e');
-            }
-          },
-          onOpenFile: () => app.commands.run('file.open'),
-          onRestore: (restored) {
-            final d = app.addDocument(restored.project, title: restored.title, path: restored.filePath);
-            d.dirty = true;
-            d.touch();
-            restored.dispose();
-          },
-          onSwitchMode: () => setUiMode(app, 'advanced'),
-          onSettings: () => openEasyPrefs(context),
-        );
-      },
-    );
-  }
+  Widget build(BuildContext context) => const ProjectLibraryView();
 }
 
 /// Opens the easy export sheet wired to the real export functions.
@@ -361,8 +332,12 @@ Future<void> showEasyExportFor(BuildContext context, DocumentController d) async
     d,
     EasyExportActions(
       pickFolder: pickExportFolder,
-      write: (o, dir, onProgress, cancel) async => _markExported(await writeExport(d, o, dir, watermark: o.watermark ? watermark() : null, onProgress: onProgress, cancel: cancel)),
-      writeVideo: video ? (dir, scale, onProgress, cancel) async => _markExported(await writeMp4(d, dir, scale: scale, watermark: watermark(), onProgress: onProgress, cancel: cancel)) : null,
+      write: (o, dir, onProgress, cancel) async =>
+          _markExported(await deliverExports(await writeExport(d, o, dir, watermark: o.watermark ? watermark() : null, onProgress: onProgress, cancel: cancel))),
+      writeVideo: video
+          ? (dir, scale, onProgress, cancel) async =>
+              _markExported(await deliverExports(await writeMp4(d, dir, scale: scale, watermark: watermark(), onProgress: onProgress, cancel: cancel)))
+          : null,
       reveal: io.isDesktopOS ? io.revealInFileManager : null,
     ),
   );
@@ -432,4 +407,185 @@ class _TutorialHost extends StatelessWidget {
       },
     );
   }
+}
+
+/// Opens or folds an easy-mode panel and remembers it.
+void togglePanel(AppState app, String key, bool open) => app.settings.update((s) => s.panelVisible = {...s.panelVisible, key: !open});
+
+/// Left tool column that folds into a thin strip (like an expandable menu).
+class _FoldingTools extends StatelessWidget {
+  const _FoldingTools({required this.open, required this.onToggle, required this.child});
+  final bool open;
+  final VoidCallback onToggle;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final app = AppState.I;
+    final current = easyToolFor(app.activeToolId, app.ts);
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOut,
+      width: open ? 68 : 36,
+      decoration: BoxDecoration(color: context.panel, border: Border(right: BorderSide(color: context.line))),
+      child: open
+          ? Column(children: [
+              Expanded(child: child),
+              _FoldButton(key: const ValueKey('easy.tools.toggle'), icon: Icons.chevron_left, tooltip: tr('Ocultar herramientas', 'Hide tools'), onTap: onToggle),
+            ])
+          : Column(children: [
+              _FoldButton(key: const ValueKey('easy.tools.toggle'), icon: Icons.chevron_right, tooltip: tr('Mostrar herramientas', 'Show tools'), onTap: onToggle),
+              if (current != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Tooltip(message: current.label, child: Icon(current.icon, size: 22, color: context.cs.primary)),
+                ),
+              const SizedBox(height: 8),
+              GestureDetector(
+                onTap: () => showEasyColors(context),
+                child: Container(
+                  width: 22,
+                  height: 22,
+                  decoration: BoxDecoration(color: app.ts.fg, shape: BoxShape.circle, border: Border.all(color: context.line, width: 2)),
+                ),
+              ),
+            ]),
+    );
+  }
+}
+
+/// Timeline that folds into a slim bar with play, frame counter and «+».
+/// Frame strip that folds into a slim bar, and can be made taller by dragging
+/// its top edge or with the «expand» button (the height is remembered).
+class _FoldingTimeline extends StatefulWidget {
+  const _FoldingTimeline({required this.open, required this.doc, required this.onToggle, required this.autoHeight, required this.maxHeight, required this.builder});
+  final bool open;
+  final DocumentController doc;
+  final VoidCallback onToggle;
+  final double autoHeight, maxHeight;
+  final Widget Function(double height) builder;
+
+  @override
+  State<_FoldingTimeline> createState() => _FoldingTimelineState();
+}
+
+class _FoldingTimelineState extends State<_FoldingTimeline> {
+  /// Height while dragging (saved to the settings when the drag ends).
+  double? _drag;
+
+  double get _saved {
+    final s = AppState.I.settings.easyTimelineHeight;
+    return s > 0 ? s : widget.autoHeight;
+  }
+
+  double get _height => (_drag ?? _saved).clamp(math.min(100.0, widget.maxHeight), widget.maxHeight);
+
+  bool get _expanded => _height >= widget.maxHeight * 0.9;
+
+  void _save(double h) {
+    final value = (h - widget.autoHeight).abs() < 4 ? 0.0 : h;
+    AppState.I.settings.update((s) => s.easyTimelineHeight = value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final app = AppState.I;
+    final doc = widget.doc;
+    final open = widget.open;
+    final grip = SizedBox(
+      height: 24,
+      child: Row(children: [
+        const SizedBox(width: 44),
+        Expanded(
+          child: GestureDetector(
+            key: const ValueKey('easy.timeline.resize'),
+            behavior: HitTestBehavior.opaque,
+            onVerticalDragUpdate: open ? (d) => setState(() => _drag = (_drag ?? _height) - d.delta.dy) : null,
+            onVerticalDragEnd: open
+                ? (_) {
+                    final h = _height;
+                    setState(() => _drag = null);
+                    _save(h);
+                  }
+                : null,
+            child: InkWell(
+              key: const ValueKey('easy.timeline.toggle'),
+              onTap: widget.onToggle,
+              child: Tooltip(
+                message: open
+                    ? tr('Toca para plegar · arrastra para cambiar la altura', 'Tap to fold · drag to change the height')
+                    : tr('Mostrar fotogramas', 'Show frames'),
+                child: Center(
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Container(width: 36, height: 4, decoration: BoxDecoration(color: context.line, borderRadius: BorderRadius.circular(2))),
+                    const SizedBox(width: 6),
+                    Icon(open ? Icons.expand_more : Icons.expand_less, size: 18, color: context.dim),
+                  ]),
+                ),
+              ),
+            ),
+          ),
+        ),
+        SizedBox(
+          width: 44,
+          child: open
+              ? IconButton(
+                  key: const ValueKey('easy.timeline.expand'),
+                  iconSize: 18,
+                  tooltip: _expanded ? tr('Tamaño normal', 'Normal size') : tr('Agrandar fotogramas', 'Enlarge frames'),
+                  icon: Icon(_expanded ? Icons.close_fullscreen : Icons.open_in_full, color: context.dim),
+                  onPressed: () => _save(_expanded ? widget.autoHeight : widget.maxHeight),
+                )
+              : null,
+        ),
+      ]),
+    );
+    if (open) return Column(mainAxisSize: MainAxisSize.min, children: [grip, widget.builder(_height)]);
+    return ListenableBuilder(
+      listenable: Listenable.merge([doc, doc.frameSignal, app.playback]),
+      builder: (context, _) => Column(mainAxisSize: MainAxisSize.min, children: [
+        grip,
+        SizedBox(
+          height: 44,
+          child: Row(children: [
+            const SizedBox(width: 6),
+            EasyButton(
+              key: const ValueKey('easy.mini.play'),
+              icon: app.playback.playing ? Icons.pause : Icons.play_arrow,
+              tooltip: app.playback.playing ? tr('Pausar', 'Pause') : tr('Reproducir', 'Play'),
+              selected: app.playback.playing,
+              onTap: app.playback.toggle,
+            ),
+            EasyButton(icon: Icons.chevron_left, tooltip: tr('Fotograma anterior', 'Previous frame'), onTap: () => doc.stepFrame(-1)),
+            Text('${doc.frame + 1} / ${doc.timeline.length}', style: const TextStyle(fontSize: 14)),
+            EasyButton(icon: Icons.chevron_right, tooltip: tr('Fotograma siguiente', 'Next frame'), onTap: () => doc.stepFrame(1)),
+            const Spacer(),
+            EasyButton(
+              key: const ValueKey('easy.mini.add'),
+              icon: Icons.add,
+              tooltip: tr('Añadir un fotograma', 'Add a frame'),
+              onTap: () => doc.insertFrames(),
+            ),
+            const SizedBox(width: 6),
+          ]),
+        ),
+      ]),
+    );
+  }
+}
+
+class _FoldButton extends StatelessWidget {
+  const _FoldButton({super.key, required this.icon, required this.tooltip, required this.onTap});
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+        message: tooltip,
+        child: InkWell(
+          onTap: onTap,
+          child: SizedBox(height: 44, width: double.infinity, child: Icon(icon, size: 22, color: context.dim)),
+        ),
+      );
 }

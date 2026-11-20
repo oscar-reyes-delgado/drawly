@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 
+import '../../app/app_state.dart';
 import '../../app/doc_selection.dart';
+import '../../app/settings.dart';
 import '../../app/tool_state.dart';
 import '../../core/i18n.dart';
+import '../../engine/brush/stabilizer.dart';
 import '../../model/gradient.dart';
 import '../../model/layer.dart';
 import '../theme.dart';
@@ -124,6 +127,8 @@ class ToolOptionsBar extends StatelessWidget {
         width: 190,
         onChanged: (v) => ts.updateBrush(b.copyWith(opacity: v)),
       ),
+      const VSep(),
+      const StabilizerOptions(),
       if (toolId == 'brush') ...[
         const VSep(),
         Text(tr('Fusión', 'Blend'), style: kTiny.copyWith(color: context.dim)),
@@ -520,4 +525,65 @@ class ToolOptionsBar extends StatelessWidget {
         'rotateView' => tr('Rotar vista', 'Rotate view'),
         _ => id,
       };
+}
+
+/// Stroke stabilizer controls (shared by brush, eraser and smudge).
+class StabilizerOptions extends StatelessWidget {
+  const StabilizerOptions({super.key, this.settings});
+
+  /// Defaults to the app settings.
+  final Settings? settings;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = settings ?? AppState.I.settings;
+    return ListenableBuilder(
+      listenable: s,
+      builder: (context, _) {
+        final mode = s.stabilizerMode;
+        return Row(mainAxisSize: MainAxisSize.min, children: [
+          Text(tr('Estabilizador', 'Stabilizer'), style: kTiny.copyWith(color: context.dim)),
+          const SizedBox(width: 6),
+          MiniDropdown<StabilizerMode>(
+            key: const ValueKey('opt_stab_mode'),
+            value: mode,
+            items: [for (final m in StabilizerMode.values) (m, m.label)],
+            tooltip: mode.help,
+            onChanged: (v) => s.update((x) => x.stabilizerMode = v),
+          ),
+          if (mode != StabilizerMode.brush) ...[
+            const SizedBox(width: 8),
+            MiniSlider(
+              key: const ValueKey('opt_stab_strength'),
+              label: tr('Nivel', 'Level'),
+              value: s.stabilizerStrength,
+              min: 0,
+              max: 1,
+              display: 10,
+              decimals: 0,
+              suffix: ' / 10',
+              width: 170,
+              onChanged: (v) => s.update((x) => x.stabilizerStrength = stabilizerStrengthOf(stabilizerLevel(v))),
+            ),
+            const SizedBox(width: 8),
+            MiniToggle(
+              key: const ValueKey('opt_stab_catchup'),
+              label: tr('Terminar en el puntero', 'Finish at pointer'),
+              value: s.stabilizerCatchUp,
+              onChanged: (v) => s.update((x) => x.stabilizerCatchUp = v),
+            ),
+            if (mode.showsGuide) ...[
+              const SizedBox(width: 6),
+              MiniToggle(
+                key: const ValueKey('opt_stab_rope'),
+                label: tr('Ver cuerda', 'Show rope'),
+                value: s.stabilizerShowRope,
+                onChanged: (v) => s.update((x) => x.stabilizerShowRope = v),
+              ),
+            ],
+          ],
+        ]);
+      },
+    );
+  }
 }

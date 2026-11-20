@@ -2,9 +2,12 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../app/app_state.dart';
+import '../../app/settings.dart';
 import '../../app/tool_state.dart';
 import '../../core/i18n.dart';
 import '../../engine/brush/preset.dart';
+import '../../engine/brush/stabilizer.dart';
 import '../theme.dart';
 
 /// The seven beginner tools. Each maps to an existing tool (and a brush preset).
@@ -446,21 +449,88 @@ class _SizePanelState extends State<_SizePanel> {
                 value: brush.opacity.clamp(0.0, 1.0),
                 onChanged: (v) => widget.ts.updateBrush(brush.copyWith(opacity: v)),
               ),
-              Row(
-                children: [
-                  Text(tr('Estabilizar', 'Stabilise'), style: const TextStyle(fontSize: 13)),
-                  const Spacer(),
-                  Text('${(brush.smoothing * 100).round()}%', style: TextStyle(fontSize: 13, color: context.dim)),
-                ],
-              ),
-              Slider(
-                key: const Key('easy.size.smoothing'),
-                value: brush.smoothing.clamp(0.0, 1.0),
-                onChanged: (v) => widget.ts.updateBrush(brush.copyWith(smoothing: v)),
-              ),
+              Text(tr('Estabilizar', 'Stabilise'), style: const TextStyle(fontSize: 13)),
+              const SizedBox(height: 6),
+              const EasyStabilizerChoice(),
             ],
           ],
         );
+      },
+    );
+  }
+}
+
+/// Stabilizer choices for beginners plus a 0–10 level (stored in the app settings).
+class EasyStabilizerChoice extends StatelessWidget {
+  const EasyStabilizerChoice({super.key, this.settings});
+  final Settings? settings;
+
+  /// id, label, mode, default strength when picked
+  static List<(String, String, StabilizerMode, double)> get presets => [
+        ('none', tr('No', 'Off'), StabilizerMode.smooth, 0),
+        ('soft', tr('Suave', 'Soft'), StabilizerMode.smooth, 0.4),
+        ('strong', tr('Fuerte', 'Strong'), StabilizerMode.average, 0.7),
+        ('rope', tr('Cuerda', 'Rope'), StabilizerMode.rope, 0.6),
+        ('super', tr('Súper', 'Super'), StabilizerMode.superStable, 0.8),
+        ('dynamic', tr('Dinámico', 'Dynamic'), StabilizerMode.dynamic, 0.6),
+        ('slow', tr('Lento', 'Slow'), StabilizerMode.slow, 0.6),
+      ];
+
+  /// Choice matching the current settings (by mode; level 0 = off), or null.
+  static String? current(Settings s) {
+    if (s.stabilizerMode == StabilizerMode.brush) return null;
+    if (s.stabilizerStrength == 0) return 'none';
+    if (s.stabilizerMode == StabilizerMode.smooth) return 'soft';
+    for (final (id, _, mode, _) in presets) {
+      if (id != 'none' && s.stabilizerMode == mode) return id;
+    }
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = settings ?? AppState.I.settings;
+    return ListenableBuilder(
+      listenable: s,
+      builder: (context, _) {
+        final cur = current(s);
+        final level = stabilizerLevel(s.stabilizerStrength);
+        return Column(crossAxisAlignment: CrossAxisAlignment.stretch, mainAxisSize: MainAxisSize.min, children: [
+          Wrap(spacing: 6, runSpacing: 6, children: [
+            for (final (id, label, mode, strength) in presets)
+              Tooltip(
+                message: id == 'none' ? tr('Sin estabilizador', 'No stabilizer') : mode.help,
+                child: ChoiceChip(
+                  key: Key('easy.stab.$id'),
+                  label: Text(label),
+                  selected: cur == id,
+                  onSelected: (_) => s.update((x) {
+                    x.stabilizerMode = mode;
+                    x.stabilizerStrength = strength;
+                    x.stabilizerCatchUp = true;
+                  }),
+                ),
+              ),
+          ]),
+          if (cur != null && cur != 'none') ...[
+            const SizedBox(height: 8),
+            Row(children: [
+              Text(tr('Nivel', 'Level'), style: const TextStyle(fontSize: 13)),
+              Expanded(
+                child: Slider(
+                  key: const Key('easy.stab.level'),
+                  value: level.clamp(1, 10).toDouble(),
+                  min: 1,
+                  max: 10,
+                  divisions: 9,
+                  label: '$level',
+                  onChanged: (v) => s.update((x) => x.stabilizerStrength = stabilizerStrengthOf(v.round())),
+                ),
+              ),
+              SizedBox(width: 28, child: Text('$level', textAlign: TextAlign.end, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600))),
+            ]),
+          ],
+        ]);
       },
     );
   }

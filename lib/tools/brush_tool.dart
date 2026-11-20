@@ -5,10 +5,12 @@ import 'package:flutter/scheduler.dart';
 
 import '../app/doc_layers.dart';
 import '../app/document_controller.dart';
+import '../app/view_state.dart';
 import '../core/i18n.dart';
 import '../core/mat2d.dart';
 import '../engine/assist.dart';
 import '../engine/brush/preset.dart';
+import '../engine/brush/stabilizer.dart';
 import '../engine/brush/stroke.dart';
 import '../engine/compositor.dart';
 import '../engine/curve_fit.dart';
@@ -76,6 +78,26 @@ class BrushTool extends Tool {
   Offset? _last;
   final Map<String, Offset> _lastEnd = {};
   bool _pumping = false;
+  bool _trailing = false;
+  ToolEvent? _lastEvent;
+  Stabilizer? _stab;
+
+  /// Rope length of the rope stabilizer at full strength, in screen pixels.
+  static const double ropeScreenRadius = 90;
+
+  Stabilizer _newStabilizer(DocumentController d) {
+    final s = app.settings;
+    return Stabilizer(
+      mode: s.stabilizerMode,
+      strength: s.stabilizerStrength,
+      ropeRadius: ropeScreenRadius / d.view.zoom.clamp(0.01, 1000),
+      catchUp: s.stabilizerCatchUp,
+      pixel: 1 / d.view.zoom.clamp(0.01, 1000),
+    );
+  }
+
+  /// The global stabilizer replaces the brush's own smoothing.
+  BrushPreset _steadied(BrushPreset b) => _stab != null && _stab!.mode != StabilizerMode.brush ? b.copyWith(smoothing: 0) : b;
 
   // vector strokes
   ({Project project, VectorLayer layer, int drawing, VectorArt art})? _vt;
@@ -84,6 +106,7 @@ class BrushTool extends Tool {
   VectorArt? _erased;
 
   void _reset() {
+    _stab = null;
     _doc = null;
     _target = null;
     _paint = null;
@@ -101,7 +124,8 @@ class BrushTool extends Tool {
     final d = doc;
     if (d == null || d.isBusy || _doc != null) return;
     final layer = d.activeLayer;
-    final b = brush;
+    _stab = _newStabilizer(d);
+    final b = _steadied(brush);
     final comp = d.comp;
     _snap = comp.assist.active ? AssistSnapper(comp.assist, e.doc) : null;
     _last = null;
@@ -160,10 +184,80 @@ class BrushTool extends Tool {
   void _feed(ToolEvent e, {Offset? at, double? time}) {
     var p = at ?? e.doc;
     if (at == null && _snap != null) p = _snap!.snap(p);
+    // straight Shift-lines are exact; free strokes go through the stabilizer
+    final points = at != null || _stab == null ? [p] : _stab!.add(p);
+    for (final q in points) {
+      _emit(e, q, time);
+    }
+    _afterStab(e);
+  }
+
+  /// Redraws the guide and keeps a trailing (slow) line moving while the
+  /// pointer rests.
+  void _afterStab(ToolEvent e) {
+    final s = _stab;
+    if (s == null) return;
+    if (s.mode.showsGuide) requestOverlay();
+    _lastEvent = e;
+    if (!s.lagging || _trailing) return;
+    _trailing = true;
+    SchedulerBinding.instance.scheduleFrameCallback((_) {
+      _trailing = false;
+      final st = _stab, ev = _lastEvent;
+      if (st == null || ev == null || !identical(st, s) || _doc == null) return;
+      final pts = st.pump();
+      if (pts.isEmpty) return;
+      for (final q in pts) {
+        if (_vt != null) {
+          _vectorPoint(q, ev);
+        } else {
+          _emit(ev, q, null);
+        }
+      }
+      if (_vt == null) _show();
+      _afterStab(ev);
+    });
+    SchedulerBinding.instance.scheduleFrame();
+  }
+
+  void _emit(ToolEvent e, Offset p, double? time) {
     _last = p;
     final input = StrokeInput(_toLayer.apply(p), pressure: e.pressure, tilt: e.tilt, azimuth: e.azimuth, timeMs: time ?? e.timeMs, hasPressure: e.hasPressure);
     _paint?.add(input);
     _smudge?.add(input);
+  }
+
+  /// Closes the gap left by the stabilizer when the pointer is lifted.
+  void _catchUp(ToolEvent e) {
+    final s = _stab;
+    if (s == null) return;
+    for (final q in s.finish()) {
+      if (_vt != null) {
+        _vectorPoint(q, e);
+      } else {
+        _emit(e, q, null);
+      }
+    }
+  }
+
+  @override
+  void paintOverlay(Canvas canvas, Size size, ViewState view) {
+    final s = _stab;
+    if (s == null || !s.mode.showsGuide || !app.settings.stabilizerShowRope) return;
+    final anchor = s.ropeAnchor, raw = s.raw;
+    if (anchor == null || raw == null) return;
+    final a = view.toView(anchor), b = view.toView(raw);
+    final line = Paint()
+      ..color = const Color(0xCC4F8CFF)
+      ..strokeWidth = 1.5;
+    canvas.drawLine(a, b, line);
+    if (s.mode.usesRope) {
+      canvas.drawCircle(a, s.ropeLength * view.zoom, Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1
+        ..color = const Color(0x664F8CFF));
+    }
+    canvas.drawCircle(a, 3, Paint()..color = const Color(0xFF4F8CFF));
   }
 
   void _show() {
@@ -204,6 +298,7 @@ class BrushTool extends Tool {
   void onUp(ToolEvent e) {
     final d = _doc;
     if (d == null) return;
+    _catchUp(e);
     if (_vt != null) {
       _endVector(d);
       return;
@@ -257,9 +352,17 @@ class BrushTool extends Tool {
   }
 
   void _vectorMove(ToolEvent e) {
-    final d = _doc!, vt = _vt!, b = _brush!;
     var p = e.doc;
     if (_snap != null) p = _snap!.snap(p);
+    final points = _stab == null || _brush!.erase ? [p] : _stab!.add(p);
+    for (final q in points) {
+      _vectorPoint(q, e);
+    }
+    _afterStab(e);
+  }
+
+  void _vectorPoint(Offset p, ToolEvent e) {
+    final d = _doc!, vt = _vt!, b = _brush!;
     final lp = _toLayer.apply(p);
     if (b.erase) {
       final hit = hitTestArt(_erased!, lp, tolerance: math.max(3, b.size / 2));

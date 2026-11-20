@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/color_utils.dart';
 import '../core/i18n.dart';
+import '../engine/brush/stabilizer.dart';
 
 /// User preferences, persisted as one JSON blob.
 class Settings extends ChangeNotifier {
@@ -50,9 +51,26 @@ class Settings extends ChangeNotifier {
   double timelineHeight = 230;
   bool timelineVisible = true;
 
+  /// Height of the frame strip of the easy mode and of the advanced timeline
+  /// chosen by the user (0 = automatic).
+  double easyTimelineHeight = 0;
+  double advTimelineHeight = 0;
+
   /// Watermark text applied on export when enabled.
   String watermark = '';
   bool watermarkEnabled = false;
+
+  /// Stroke stabilizer shared by brush, eraser and smudge.
+  StabilizerMode stabilizerMode = StabilizerMode.brush;
+
+  /// 0..1: how strongly strokes are steadied.
+  double stabilizerStrength = 0.5;
+
+  /// Finish the stroke where the pointer was lifted.
+  bool stabilizerCatchUp = true;
+
+  /// Show the string of the rope stabilizer while drawing.
+  bool stabilizerShowRope = true;
 
   /// Interface mode: 'easy', 'advanced', or '' (not chosen yet: ask on first start).
   String uiMode = '';
@@ -145,9 +163,15 @@ class Settings extends ChangeNotifier {
         'dockWidth': dockWidth,
         'timelineHeight': timelineHeight,
         'timelineVisible': timelineVisible,
+        'easyTimelineHeight': easyTimelineHeight,
+        'advTimelineHeight': advTimelineHeight,
         'watermark': watermark,
         'watermarkEnabled': watermarkEnabled,
         'uiMode': uiMode,
+        'stabilizerMode': stabilizerMode.name,
+        'stabilizerStrength': stabilizerStrength,
+        'stabilizerCatchUp': stabilizerCatchUp,
+        'stabilizerShowRope': stabilizerShowRope,
         'easyWidth': easyWidth,
         'easyHeight': easyHeight,
         'easyFps': easyFps,
@@ -188,8 +212,14 @@ class Settings extends ChangeNotifier {
     dockWidth = num_('dockWidth', 300).clamp(220.0, 600.0);
     timelineHeight = num_('timelineHeight', 230).clamp(120.0, 700.0);
     timelineVisible = pick('timelineVisible', true);
+    easyTimelineHeight = num_('easyTimelineHeight', 0).clamp(0.0, 4000.0);
+    advTimelineHeight = num_('advTimelineHeight', 0).clamp(0.0, 4000.0);
     watermark = pick('watermark', '');
     watermarkEnabled = pick('watermarkEnabled', false);
+    stabilizerMode = StabilizerMode.values.firstWhere((x) => x.name == m['stabilizerMode'], orElse: () => StabilizerMode.brush);
+    stabilizerStrength = num_('stabilizerStrength', 0.5).clamp(0.0, 1.0);
+    stabilizerCatchUp = pick('stabilizerCatchUp', true);
+    stabilizerShowRope = pick('stabilizerShowRope', true);
     uiMode = const {'easy', 'advanced'}.contains(m['uiMode']) ? m['uiMode'] as String : '';
     easyWidth = pick('easyWidth', 1920).clamp(16, 16384);
     easyHeight = pick('easyHeight', 1080).clamp(16, 16384);

@@ -9,7 +9,7 @@ import 'theme.dart';
 /// that menu, so new commands always show up somewhere.
 const Map<CommandCategory, List<String>> kMenuLayout = {
   CommandCategory.file: [
-    'file.new', 'file.open', 'file.openOra', '-', 'file.importImage', 'file.importSvg', '-', 'file.save', 'file.saveAs', '-',
+    'file.new', 'file.open', 'file.library', 'file.openOra', '-', 'file.importImage', 'file.importSvg', '-', 'file.save', 'file.saveAs', '-',
     'file.export', 'file.exportPng', 'file.exportJpg', 'file.exportWebp', 'file.exportMp4', 'file.exportGif', 'file.exportApng', 'file.exportSequence', 'file.exportSvg', 'file.exportOra', 'file.exportPsd', 'file.exportLottie', 'file.exportEdl', 'file.exportFcpXml', '-',
     'file.close',
   ],
@@ -25,7 +25,7 @@ const Map<CommandCategory, List<String>> kMenuLayout = {
     'layer.addMask', 'layer.deleteMask', 'layer.applyMask', 'layer.invertMask', 'layer.toggleMask', '-', 'layer.toSymbol',
   ],
   CommandCategory.animation: [
-    'anim.play', '-', 'anim.firstFrame', 'anim.prevFrame', 'anim.nextFrame', 'anim.lastFrame', 'anim.prevKey', 'anim.nextKey', '-',
+    'anim.play', 'anim.watch', '-', 'anim.firstFrame', 'anim.prevFrame', 'anim.nextFrame', 'anim.lastFrame', 'anim.prevKey', 'anim.nextKey', '-',
     'anim.newKey', 'anim.dupKey', 'anim.blankKey', 'anim.deleteKey', '-', 'anim.insertFrame', 'anim.removeFrame', 'anim.copyFrame', 'anim.pasteFrame', '-', 'anim.loop', 'anim.pingPong',
   ],
   CommandCategory.view: [
